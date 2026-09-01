@@ -1,0 +1,56 @@
+%% Smart Energy Optimizer - architecture de realisation (equipe) - 01/09/2026
+%% En grise et en pointilles : ce qui est decide mais repousse (modele, MLflow,
+%% canal d'alerte sortant). Voir docs/decisions.md.
+%% A coller sur https://mermaid.live
+flowchart LR
+    CSV["Fichiers CSV 2023-2024<br/>fournis par le formateur"]
+    SRC["API mock<br/>/readings (reprise unique)<br/>/current (temps reel)"]
+
+    subgraph INGEST["Ingestion"]
+        BOOT["Scripts d'amorcage<br/>import CSV + reprise historique<br/>execution unique"]
+        POLL["Collecteur permanent<br/>/current toutes les minutes"]
+    end
+
+    subgraph DB["PostgreSQL"]
+        RAW[("Couche brute<br/>JSONB, append only")]
+        CLEAN[("Couche transformee<br/>tables typees + index")]
+    end
+
+    TR["Job ETL Python<br/>toutes les 15 minutes"]
+
+    subgraph ML["Machine learning"]
+        FEAT["Paquet commun<br/>calcul des variables"]
+        TRAIN["Entrainement<br/>gradient boosting"]
+        MLF["MLflow<br/>suivi + registre"]
+    end
+
+    BACK["Backend FastAPI<br/>REST + JWT"]
+    FRONT["Front React"]
+    NOTIF["Canal sortant<br/>hors perimetre pour l'instant<br/>voir decision 15"]
+    CI["CI/CD GitHub Actions<br/>lint, tests, scan, deploiement"]
+
+    CSV --> BOOT
+    SRC --> BOOT
+    SRC --> POLL
+    BOOT --> RAW
+    POLL --> RAW
+    RAW --> TR
+    TR --> CLEAN
+    CLEAN -.-> TRAIN
+    FEAT -.-> TRAIN
+    FEAT --> BACK
+    TRAIN -.-> MLF
+    MLF -.-> BACK
+    CLEAN --> BACK
+    BACK --> FRONT
+    BACK -.-> NOTIF
+    CI -.-> TR
+    CI -.-> BACK
+    CI -.-> FRONT
+
+    classDef store fill:#eef4ff,stroke:#4a6fa5,color:#12203a
+    classDef later fill:#f4f4f6,stroke:#a8adb7,color:#5a6472,stroke-dasharray:4 3
+    classDef proc fill:#ffffff,stroke:#5a6472,color:#12203a
+    class RAW,CLEAN store
+    class BOOT,POLL,TR,FEAT,BACK,FRONT,CI,CSV,SRC proc
+    class TRAIN,MLF,NOTIF later
