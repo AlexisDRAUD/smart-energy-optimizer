@@ -1,0 +1,39 @@
+# Environnement
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+services/web/dist/
+
+# MLflow et artefacts de modeles
+mlruns/
+mlartifacts/
+models/*.pkl
+models/*.joblib
+
+# Donnees locales
+data/
+*.csv
+!docs/**/*.csv
+
+# Outils
+.DS_Store
+.idea/
+.vscode/
+*.log
