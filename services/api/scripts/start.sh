@@ -10,10 +10,18 @@ if [ -f .env ]; then
   set +a
 fi
 
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL=$(sed -n 's/^[[:space:]]*sqlalchemy.url[[:space:]]*=[[:space:]]*//p' alembic.ini | head -n 1)
+  export DATABASE_URL
+fi
+
 PYTHON=${PYTHON:-python3}
 if [ -x .venv/bin/python ]; then
   PYTHON=.venv/bin/python
 fi
+
+printf '%s\n' 'Verification de l acces a la base de donnees...'
+"$PYTHON" -c 'from app.db.session import verify_database_connection; verify_database_connection()'
 
 printf '%s\n' 'Application des migrations...'
 "$PYTHON" -m alembic upgrade head

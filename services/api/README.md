@@ -156,7 +156,8 @@ cp .env.example .env
 ./scripts/start.sh
 ```
 
-Le script applique les migrations Alembic puis démarre l'API avec rechargement
+Le script vérifie d'abord que la base configurée est accessible, applique les migrations
+Alembic puis démarre l'API avec rechargement
 automatique sur `http://localhost:8000`. Au premier démarrage, les données de
 démonstration sont insérées automatiquement dans la base.
 
@@ -231,7 +232,7 @@ curl http://localhost:8000/health
 Réponse :
 
 ```json
-{"status":"ok"}
+{"status":"ok","database":"available"}
 ```
 
 ### Authentification JWT

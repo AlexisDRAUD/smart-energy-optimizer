@@ -1,16 +1,18 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.router import api_router
 from app.config import settings
 from app.db.init_db import initialize_database
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, verify_database_connection
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    verify_database_connection()
     with SessionLocal() as db:
         initialize_database(db)
     yield
@@ -37,4 +39,11 @@ def index() -> HTMLResponse:
 
 @app.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+    try:
+        verify_database_connection()
+    except SQLAlchemyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        ) from error
+    return {"status": "ok", "database": "available"}
