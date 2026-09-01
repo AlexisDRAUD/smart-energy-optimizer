@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 from app.api.v1.router import api_router
 from app.config import settings
@@ -17,6 +18,21 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+
+@app.get("/", response_class=HTMLResponse, tags=["root"])
+def index() -> HTMLResponse:
+    """Index page to verify the API is running."""
+    html = """
+    <html>
+      <head><title>Smart Energy Optimizer</title></head>
+      <body>
+        <h1>Smart Energy Optimizer API</h1>
+        <p>Le serveur fonctionne correctement.</p>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html, status_code=200)
 
 
 @app.get("/health", tags=["health"])
