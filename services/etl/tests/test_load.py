@@ -38,7 +38,7 @@ def test_loading_creates_database_and_persists_traceable_reading(tmp_path: Path)
         ).fetchone()
     assert row is not None
     assert row[0] == "SITE001"
-    assert row[1] == "2026-09-02T12:23:23.083492"
+    assert row[1] == "2026-09-02T12:23:23.083492+00:00"
     assert json.loads(row[2]) == valid_payload()
 
 
@@ -55,3 +55,19 @@ def test_loading_same_reading_twice_does_not_create_duplicate(tmp_path: Path) ->
     with sqlite3.connect(database_path) as connection:
         row_count = connection.execute("SELECT COUNT(*) FROM energy_readings").fetchone()
     assert row_count == (1,)
+
+
+def test_equivalent_timestamp_offsets_do_not_create_duplicate(tmp_path: Path) -> None:
+    database_path = tmp_path / "readings.sqlite3"
+    utc_payload = valid_payload()
+    utc_payload["timestamp"] = "2026-09-02T12:23:23+00:00"
+    offset_payload = valid_payload()
+    offset_payload["timestamp"] = "2026-09-02T14:23:23+02:00"
+
+    result = load_readings(
+        database_path,
+        [EnergyReading.from_source(utc_payload), EnergyReading.from_source(offset_payload)],
+    )
+
+    assert result.inserted_count == 1
+    assert result.skipped_count == 1

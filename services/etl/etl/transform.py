@@ -5,7 +5,7 @@ import math
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator
@@ -51,9 +51,13 @@ class EnergyReading(BaseModel):
 
         normalized_value = f"{value[:-1]}+00:00" if value.endswith("Z") else value
         try:
-            return datetime.fromisoformat(normalized_value)
+            parsed_value = datetime.fromisoformat(normalized_value)
         except ValueError as exc:
             raise ValueError("timestamp doit être une date ISO valide") from exc
+
+        if parsed_value.tzinfo is None:
+            return parsed_value.replace(tzinfo=UTC)
+        return parsed_value.astimezone(UTC)
 
     @field_validator("site_id", "site_type", mode="before")
     @classmethod

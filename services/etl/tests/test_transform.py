@@ -28,7 +28,7 @@ def test_valid_reading_is_normalized_without_losing_source_payload() -> None:
     reading = EnergyReading.from_source(payload)
 
     assert reading.consumption_kw == 163.28
-    assert reading.timestamp.isoformat() == "2026-09-02T12:23:23.083492"
+    assert reading.timestamp.isoformat() == "2026-09-02T12:23:23.083492+00:00"
     assert reading.site_id == "SITE001"
     assert reading.source_payload == payload
     assert reading.source_payload["consumption_kw"] == "163.28"
@@ -45,6 +45,19 @@ def test_missing_measure_stays_absent_from_normalized_payload() -> None:
     assert reading.temperature_celsius is None
     assert "temperature_celsius" not in reading.normalized_payload()
     assert "temperature_celsius" not in reading.source_payload
+
+
+def test_equivalent_timestamp_offsets_are_normalized_to_utc() -> None:
+    utc_payload = valid_payload()
+    utc_payload["timestamp"] = "2026-09-02T12:23:23+00:00"
+    offset_payload = valid_payload()
+    offset_payload["timestamp"] = "2026-09-02T14:23:23+02:00"
+
+    utc_reading = EnergyReading.from_source(utc_payload)
+    offset_reading = EnergyReading.from_source(offset_payload)
+
+    assert utc_reading.timestamp == offset_reading.timestamp
+    assert offset_reading.timestamp.isoformat() == "2026-09-02T12:23:23+00:00"
 
 
 @pytest.mark.parametrize(
