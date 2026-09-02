@@ -26,7 +26,8 @@ N'y va pas : la moindre transformation. Ce qui est jeté ici est perdu définiti
 ## `services/etl/`
 
 Lit la couche brute, contrôle, répare, agrège, écrit la couche transformée. Tourne toutes les
-quinze minutes et peut être rejoué sur une fenêtre déjà traitée sans créer de doublon.
+minutes, sur une fenêtre glissante de trente minutes, et peut être rejoué sur une fenêtre déjà
+traitée sans créer de doublon.
 N'y va pas : le calcul des variables d'entrée du modèle, il est dans le paquet commun.
 
 ## `services/ml/`
