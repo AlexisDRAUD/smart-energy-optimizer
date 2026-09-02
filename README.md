@@ -11,6 +11,16 @@ Projet EnerVision, promotion EADL 2025, groupe 1.
 - Leve des alertes sur les depassements de seuil.
 - Propose des actions d'economie chiffrees en kWh.
 
+## Demarrer
+
+```bash
+cp .env.example .env      # puis remplir les deux secrets
+docker compose up -d
+```
+
+La procedure complete, et quoi faire quand le schema de la base change, sont dans
+`docs/setup.md`.
+
 ## Documentation
 
 Tout est dans `docs/`. Commencer par `docs/architecture.md`.
