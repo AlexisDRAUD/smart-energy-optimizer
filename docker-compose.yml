@@ -37,5 +37,17 @@ services:
       timeout: 5s
       retries: 3
 
+  web:
+    build:
+      context: ./services/web
+      args:
+        VITE_BACK_API_URL: ""
+    image: smart-energy-optimizer-web:local
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-80}:80"
+
 volumes:
   db_data:
