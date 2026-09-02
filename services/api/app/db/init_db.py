@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.security import get_password_hash
-from app.db.base import Base
-from app.db.session import engine
 from app.models.alert import Alert
+from app.models.prediction import Prediction
+from app.models.quality import DataQualityDaily, EtlRun, SensorStatus
 from app.models.reading import Reading
 from app.models.site import Site
 from app.models.user import User
@@ -20,29 +20,48 @@ def _consumption_value(base_consumption: float, recorded_at: datetime, offset: i
     return round(base_consumption * workday_factor * minute_variation, 2)
 
 
-def initialize_database(db: Session) -> None:
-    """Create the schema and populate the local demonstration dataset once."""
-    Base.metadata.create_all(bind=engine)
-    if db.scalar(select(User.id).limit(1)) is not None:
+def seed_test_data(db: Session) -> None:
+    """Populate an isolated PostgreSQL test database after Alembic has created the schema."""
+    if db.scalar(select(Site.site_id).limit(1)) is not None:
+        _ensure_demo_users(db)
         return
 
     sites = [
-        Site(code="LYO-01", name="Atelier Lyon Gerland", city="Lyon", surface_m2=4200, subscribed_power_kw=850),
-        Site(code="GRE-01", name="Usine Grenoble Sud", city="Grenoble", surface_m2=6800, subscribed_power_kw=1200),
-        Site(code="NAN-01", name="Entrepot Nantes Est", city="Nantes", surface_m2=3100, subscribed_power_kw=500),
+        Site(
+            site_id="LYO-01",
+            site_type="office",
+            site_name="Atelier Lyon Gerland",
+            location="Lyon, France",
+            capacity_kw=850,
+            status="active",
+            first_seen_at=datetime.now(UTC),
+            last_seen_at=datetime.now(UTC),
+        ),
+        Site(
+            site_id="GRE-01",
+            site_type="factory",
+            site_name="Usine Grenoble Sud",
+            location="Grenoble, France",
+            capacity_kw=1200,
+            status="active",
+            first_seen_at=datetime.now(UTC),
+            last_seen_at=datetime.now(UTC),
+        ),
+        Site(
+            site_id="NAN-01",
+            site_type="warehouse",
+            site_name="Entrepôt Nantes Est",
+            location="Nantes, France",
+            capacity_kw=500,
+            status="active",
+            first_seen_at=datetime.now(UTC),
+            last_seen_at=datetime.now(UTC),
+        ),
     ]
     db.add_all(sites)
     db.flush()
 
-    password = get_password_hash(settings.seed_user_password)
-    db.add_all(
-        [
-            User(username="camille.admin", email="camille.martin@enervision.demo", full_name="Camille Martin", hashed_password=password, site=sites[0]),
-            User(username="lucas.operator", email="lucas.bernard@enervision.demo", full_name="Lucas Bernard", hashed_password=password, site=sites[1]),
-            User(username="ines.analyst", email="ines.dubois@enervision.demo", full_name="Ines Dubois", hashed_password=password, site=sites[2]),
-            User(username="marc.viewer", email="marc.legrand@enervision.demo", full_name="Marc Legrand", hashed_password=password, site=sites[0]),
-        ]
-    )
+    _ensure_demo_users(db)
 
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     history_start = now - timedelta(minutes=1439)
@@ -57,26 +76,122 @@ def initialize_database(db: Session) -> None:
             is_missing = (minute_offset, index) in missing_values
             readings.append(
                 Reading(
-                    site_id=site.id,
-                    recorded_at=recorded_at,
+                    site_id=site.site_id,
+                    measured_at=recorded_at,
+                    consumption_kwh=value,
                     consumption_kwh_raw=None if is_missing else value,
-                    consumption_kwh_imputed=value if is_missing else None,
+                    is_imputed=is_missing,
+                    imputation_method="report" if is_missing else None,
+                    temperature_celsius=20.0 + index,
+                    humidity_percent=45.0 + index,
                     data_quality="partial" if is_missing else "good",
-                    null_reasons=["scheduled_sensor_maintenance"] if is_missing else None,
-                    source="seed",
+                    null_reasons=["scheduled_sensor_maintenance"] if is_missing else [],
+                    ingested_at=now,
                 )
             )
     db.add_all(readings)
     db.flush()
+    scored_target = now - timedelta(minutes=30)
+    actual_by_site = {
+        reading.site_id: reading.consumption_kwh
+        for reading in readings
+        if reading.measured_at == scored_target
+    }
+    db.add_all(
+        [
+            Prediction(
+                site_id=site.site_id,
+                predicted_at=scored_target - timedelta(minutes=120),
+                target_at=scored_target,
+                horizon_minutes=120,
+                model_name=settings.local_model_name,
+                model_version=settings.local_model_version,
+                predicted_kwh=round((actual_by_site[site.site_id] or 0) * 0.97, 3),
+                actual_kwh=actual_by_site[site.site_id],
+                scored_at=scored_target,
+            )
+            for site in sites
+        ]
+    )
     refresh_stored_predictions(db, now)
 
     db.add(
         Alert(
-            site_id=sites[1].id,
-            severity="warning",
-            message="Consommation elevee detectee sur le site Grenoble Sud.",
-            triggered_at=now - timedelta(minutes=30),
-            is_active=True,
+            site_id=sites[1].site_id,
+            severity="high",
+            type="threshold",
+            message="Consommation élevée détectée sur le site Grenoble Sud.",
+            detected_at=now - timedelta(minutes=30),
+            value=1130,
+            threshold_value=1080,
+            status="open",
         )
+    )
+    db.add_all(
+        [
+            SensorStatus(
+                site_id=site.site_id,
+                sensor=sensor,
+                observed_at=now,
+                status="ok",
+                failing_until=None,
+            )
+            for site in sites
+            for sensor in ("consumption", "electrical", "temperature", "humidity", "network")
+        ]
+    )
+    today = now.date()
+    db.add_all(
+        [
+            DataQualityDaily(
+                site_id=site.site_id,
+                day=today,
+                expected_points=1440,
+                received_points=1440,
+                missing_points=0,
+                null_points=1,
+                imputed_points=1,
+                computed_at=now,
+            )
+            for site in sites
+        ]
+    )
+    db.add(
+        EtlRun(
+            started_at=now - timedelta(minutes=1),
+            finished_at=now,
+            window_start=now - timedelta(minutes=30),
+            window_end=now,
+            rows_read=len(readings),
+            rows_written=len(readings),
+            rows_imputed=3,
+            status="ok",
+            error_message=None,
+        )
+    )
+    db.commit()
+
+
+def _ensure_demo_users(db: Session) -> None:
+    existing_emails = set(db.scalars(select(User.email)))
+    password = get_password_hash(settings.seed_user_password)
+    now = datetime.now(UTC)
+    demo_users = (
+        ("camille.martin@enervision.demo", "admin"),
+        ("lucas.bernard@enervision.demo", "operator"),
+        ("marc.legrand@enervision.demo", "viewer"),
+    )
+    db.add_all(
+        [
+            User(
+                email=email,
+                password_hash=password,
+                role=role,
+                is_active=True,
+                created_at=now,
+            )
+            for email, role in demo_users
+            if email not in existing_emails
+        ]
     )
     db.commit()
