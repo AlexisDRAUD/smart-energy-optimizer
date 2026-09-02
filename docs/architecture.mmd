@@ -16,7 +16,7 @@ flowchart LR
         CLEAN[("Couche transformee<br/>tables typees + index")]
     end
 
-    TR["Job ETL Python<br/>toutes les 15 minutes"]
+    TR["Job ETL Python<br/>toutes les minutes<br/>fenetre glissante 30 min"]
 
     subgraph ML["Machine learning"]
         FEAT["Paquet commun<br/>calcul des variables"]
@@ -24,7 +24,7 @@ flowchart LR
         MLF["MLflow<br/>suivi + registre"]
     end
 
-    BACK["Backend FastAPI<br/>REST + JWT"]
+    BACK["Backend FastAPI<br/>REST + JWT<br/>boucle de prediction H+2<br/>toutes les minutes"]
     FRONT["Front React"]
     NOTIF["Canal sortant<br/>hors perimetre pour l'instant<br/>voir decision 15"]
     CI["CI/CD GitHub Actions<br/>lint, tests, scan, deploiement"]
