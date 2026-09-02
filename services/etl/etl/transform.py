@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, field_validator
 
@@ -38,8 +38,8 @@ class EnergyReading(BaseModel):
     power_factor: float | None = Field(default=None, ge=0, le=1)
     temperature_celsius: float | None = None
     humidity_percent: float | None = Field(default=None, ge=0, le=100)
-    null_reasons: list[Any]
-    data_quality: str
+    null_reasons: list[str]
+    data_quality: Literal["good", "partial", "degraded", "critical"]
 
     _source_payload: dict[str, Any] = PrivateAttr(default_factory=dict)
 

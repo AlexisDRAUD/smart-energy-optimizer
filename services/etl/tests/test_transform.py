@@ -59,6 +59,8 @@ def test_missing_measure_stays_absent_from_normalized_payload() -> None:
         ("power_factor", 1.01),
         ("humidity_percent", 100.1),
         ("null_reasons", "sensor_failure"),
+        ("null_reasons", [42]),
+        ("data_quality", "unknown"),
     ],
 )
 def test_invalid_values_are_rejected(field: str, invalid_value: Any) -> None:
