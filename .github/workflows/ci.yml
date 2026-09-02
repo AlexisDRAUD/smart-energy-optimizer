@@ -26,9 +26,25 @@ jobs:
         run: ruff format --check .
 
   # Job Test : tests unitaires + couverture du service API.
+  # La suite exige un vrai PostgreSQL : conftest.py recree une base seo_test,
+  # joue les migrations Alembic puis insere le jeu de donnees de test.
   test:
     runs-on: ubuntu-latest
     needs: lint
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: seo
+          POSTGRES_PASSWORD: change_moi
+          POSTGRES_DB: seo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U seo -d seo"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     defaults:
       run:
         working-directory: services/api
@@ -44,6 +60,8 @@ jobs:
           pip install -r requirements.txt
           pip install pytest-cov
       - name: Tests + couverture
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://seo:change_moi@127.0.0.1:5432/seo_test
         run: pytest --cov=app --cov-report=term-missing --cov-report=xml
       - uses: actions/upload-artifact@v4
         with:
