@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -11,7 +11,7 @@ from app.api.v1.serializers import alert_response
 from app.core.contract import as_utc, require_utc_range, utc_iso, utc_now
 from app.models.alert import Alert
 from app.models.site import Site
-from app.schemas.contract import AlertResponse, AlertSummaryResponse, AlertsResponse
+from app.schemas.contract import AlertResponse, AlertsResponse, AlertSummaryResponse
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -27,7 +27,7 @@ def list_alerts(
     db: DbSession,
     site_id: str | None = None,
     severity: Severity | None = None,
-    status_filter: AlertStatus | None = Query(default="open", alias="status"),
+    status_filter: Annotated[AlertStatus | None, Query(alias="status")] = "open",
     type: AlertType | None = None,
     start: str | None = None,
     end: str | None = None,
@@ -56,7 +56,12 @@ def list_alerts(
     alerts = list(
         db.scalars(statement.order_by(Alert.detected_at.desc()).offset(offset).limit(limit))
     )
-    return {"items": [alert_response(alert) for alert in alerts], "total": total, "limit": limit, "offset": offset}
+    return {
+        "items": [alert_response(alert) for alert in alerts],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/summary", response_model=AlertSummaryResponse)
@@ -66,11 +71,14 @@ def alert_summary(
     period: Period = "day",
 ) -> dict[str, object]:
     now = utc_now()
-    period_start = now - {
-        "day": timedelta(days=1),
-        "week": timedelta(days=7),
-        "month": timedelta(days=30),
-    }[period]
+    period_start = (
+        now
+        - {
+            "day": timedelta(days=1),
+            "week": timedelta(days=7),
+            "month": timedelta(days=30),
+        }[period]
+    )
     period_alerts = list(
         db.scalars(
             select(Alert)
@@ -100,7 +108,9 @@ def acknowledge_alert(alert_id: int, user: OperatorUser, db: DbSession) -> dict[
     if alert is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
     if alert.status == "closed":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed alerts cannot be acknowledged")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Closed alerts cannot be acknowledged"
+        )
     if alert.status == "open":
         alert.status = "acknowledged"
         alert.acknowledged_at = utc_now()

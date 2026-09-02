@@ -5,19 +5,17 @@ replaced only when they are empty: data-bearing databases require an explicit
 business migration so no site or user relationship is guessed or discarded.
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
-import sqlalchemy as sa
-
-from app.db.base import Base
 import app.models  # noqa: F401
-
+import sqlalchemy as sa
+from alembic import op
+from app.db.base import Base
 
 revision: str = "20260902_0003"
-down_revision: Union[str, Sequence[str], None] = "20260902_0002"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "20260902_0002"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 LEGACY_TABLES = ("user_roles", "alerts", "readings", "users", "roles", "sites")
 
@@ -29,7 +27,10 @@ def upgrade() -> None:
         table_name
         for table_name in LEGACY_TABLES
         if table_name in table_names
-        and connection.execute(sa.text(f"SELECT 1 FROM {table_name} LIMIT 1")).first() is not None
+        and connection.execute(
+            sa.select(sa.literal(1)).select_from(sa.table(table_name)).limit(1)
+        ).first()
+        is not None
     ]
     if populated_tables:
         raise RuntimeError(

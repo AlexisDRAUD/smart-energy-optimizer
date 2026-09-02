@@ -13,7 +13,7 @@ def utc_now() -> datetime:
 
 
 def as_utc(value: datetime) -> datetime:
-    """Normalise database values; SQLite returns naive values for timezone columns."""
+    """Normalize a database timestamp to UTC."""
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)

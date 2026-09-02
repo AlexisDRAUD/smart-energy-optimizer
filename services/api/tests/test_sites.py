@@ -20,7 +20,9 @@ def test_viewer_can_read_full_site_reference(
     }
 
 
-def test_latest_reading_uses_contract_shape(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_latest_reading_uses_contract_shape(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     response = client.get("/api/v1/sites/LYO-01/latest", headers=auth_headers)
 
     assert response.status_code == 200

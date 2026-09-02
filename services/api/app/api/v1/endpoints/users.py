@@ -6,7 +6,7 @@ from app.api.deps import AdminUser, DbSession
 from app.api.v1.serializers import user_response
 from app.crud.user import create_user
 from app.models.user import User
-from app.schemas.contract import IdentityResponse, UserCreate, UserUpdate, UsersResponse
+from app.schemas.contract import IdentityResponse, UserCreate, UsersResponse, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -20,7 +20,12 @@ def list_users(
 ) -> dict[str, object]:
     total = db.scalar(select(func.count(User.id))) or 0
     users = list(db.scalars(select(User).order_by(User.email).offset(offset).limit(limit)))
-    return {"items": [user_response(user) for user in users], "total": total, "limit": limit, "offset": offset}
+    return {
+        "items": [user_response(user) for user in users],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("", response_model=IdentityResponse, status_code=status.HTTP_201_CREATED)
@@ -29,7 +34,9 @@ def create_account(_: AdminUser, user_in: UserCreate, db: DbSession) -> dict[str
         return user_response(create_user(db, user_in))
     except IntegrityError as error:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists") from error
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists"
+        ) from error
 
 
 @router.patch("/{user_id}", response_model=IdentityResponse)

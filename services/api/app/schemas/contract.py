@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
 ISODateTime = str
 
 
@@ -28,7 +27,7 @@ class LoginRequest(ContractModel):
 
 class TokenResponse(ContractModel):
     access_token: str
-    token_type: Literal["bearer"] = "bearer"
+    token_type: Literal["bearer"] = Field(default="bearer")
     expires_in: int = Field(gt=0)
 
 
@@ -134,7 +133,9 @@ class SensorPoint(ContractModel):
     sensor: Literal["consumption", "electrical", "temperature", "humidity", "network"]
     observed_at: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
     status: Literal["ok", "failing"]
-    failing_until: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
+    failing_until: ISODateTime | None = Field(
+        default=None, json_schema_extra={"format": "date-time"}
+    )
 
 
 class SensorSiteResponse(ContractModel):
@@ -160,7 +161,9 @@ class AlertResponse(ContractModel):
     value: float | None
     threshold_value: float | None
     status: Literal["open", "acknowledged", "closed"]
-    acknowledged_at: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
+    acknowledged_at: ISODateTime | None = Field(
+        default=None, json_schema_extra={"format": "date-time"}
+    )
 
 
 class AlertsResponse(ContractModel):
@@ -242,7 +245,9 @@ class SourceStatus(ContractModel):
 
 class EtlStatus(ContractModel):
     status: str
-    last_completed_at: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
+    last_completed_at: ISODateTime | None = Field(
+        default=None, json_schema_extra={"format": "date-time"}
+    )
     last_result: str | None
 
 

@@ -11,9 +11,7 @@ from app.db.base import Base
 class Site(Base):
     __tablename__ = "sites"
 
-    __table_args__ = (
-        CheckConstraint("status IN ('active', 'inactive')", name="ck_sites_status"),
-    )
+    __table_args__ = (CheckConstraint("status IN ('active', 'inactive')", name="ck_sites_status"),)
 
     site_id: Mapped[str] = mapped_column(String, primary_key=True)
     site_type: Mapped[str] = mapped_column(String, nullable=False)

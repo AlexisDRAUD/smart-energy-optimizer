@@ -50,7 +50,9 @@ def get_latest_reading(site_id: str, _: CurrentUser, db: DbSession) -> dict[str,
         .limit(1)
     )
     if reading is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No reading available for this site")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No reading available for this site"
+        )
     age_seconds = max(0, int((utc_now() - as_utc(reading.measured_at)).total_seconds()))
     return {
         "site_id": reading.site_id,

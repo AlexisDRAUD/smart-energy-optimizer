@@ -20,9 +20,7 @@ class Prediction(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     site_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     predicted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     target_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
@@ -33,10 +31,7 @@ class Prediction(Base):
     actual_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
     absolute_error: Mapped[float | None] = mapped_column(
         Float,
-        Computed(
-            "CASE WHEN actual_kwh IS NULL THEN NULL "
-            "ELSE abs(predicted_kwh - actual_kwh) END"
-        ),
+        Computed("CASE WHEN actual_kwh IS NULL THEN NULL ELSE abs(predicted_kwh - actual_kwh) END"),
         nullable=True,
     )
     scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

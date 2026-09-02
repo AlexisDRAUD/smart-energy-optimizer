@@ -1,12 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi.testclient import TestClient
-from sqlalchemy import func, select
-
 from app.db.session import SessionLocal
 from app.models.prediction import Prediction
 from app.models.reading import Reading
 from app.services.prediction_service import PREDICTION_HORIZON_MINUTES, refresh_stored_predictions
+from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 
 def test_refresh_writes_one_idempotent_horizon_prediction_per_site(

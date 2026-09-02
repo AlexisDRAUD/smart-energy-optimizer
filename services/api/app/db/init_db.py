@@ -20,10 +20,8 @@ def _consumption_value(base_consumption: float, recorded_at: datetime, offset: i
     return round(base_consumption * workday_factor * minute_variation, 2)
 
 
-def initialize_database(db: Session) -> None:
-    """Populate only the local demo data after Alembic has created the schema."""
-    if not settings.database_url.startswith("sqlite"):
-        return
+def seed_test_data(db: Session) -> None:
+    """Populate an isolated PostgreSQL test database after Alembic has created the schema."""
     if db.scalar(select(Site.site_id).limit(1)) is not None:
         _ensure_demo_users(db)
         return

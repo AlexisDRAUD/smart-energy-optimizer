@@ -126,7 +126,11 @@ def metric(values: list[tuple[float, float]]) -> dict[str, float | None]:
         "mae": round(sum(errors) / len(errors), 3),
         "rmse": round(sqrt(sum(error**2 for error in errors) / len(errors)), 3),
         "mape_percent": round(
-            sum(error / abs(actual) * 100 for error, (_, actual) in zip(errors, values) if actual)
+            sum(
+                error / abs(actual) * 100
+                for error, (_, actual) in zip(errors, values, strict=True)
+                if actual
+            )
             / sum(1 for _, actual in values if actual),
             3,
         )
@@ -161,9 +165,7 @@ def performance_metrics(
         if actual is None:
             continue
         model_values.append((prediction.predicted_kwh, actual))
-        baseline_time = as_utc(prediction.target_at) - timedelta(
-            minutes=prediction.horizon_minutes
-        )
+        baseline_time = as_utc(prediction.target_at) - timedelta(minutes=prediction.horizon_minutes)
         latest = db.scalar(
             select(Reading)
             .where(
@@ -192,8 +194,7 @@ def performance_metrics(
         linear_values.append(
             (
                 latest.consumption_kwh
-                + (latest.consumption_kwh - prior.consumption_kwh)
-                * prediction.horizon_minutes,
+                + (latest.consumption_kwh - prior.consumption_kwh) * prediction.horizon_minutes,
                 actual,
             )
         )

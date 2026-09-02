@@ -10,7 +10,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.config import settings
-from app.db.init_db import initialize_database
 from app.db.session import SessionLocal, verify_database_connection
 from app.schemas.contract import ErrorResponse
 from app.services.prediction_service import model_metadata, refresh_stored_predictions
@@ -40,8 +39,6 @@ async def refresh_predictions_periodically(stop_event: asyncio.Event) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     verify_database_connection()
-    with SessionLocal() as db:
-        initialize_database(db)
 
     stop_event = asyncio.Event()
     refresh_task = asyncio.create_task(refresh_predictions_periodically(stop_event))

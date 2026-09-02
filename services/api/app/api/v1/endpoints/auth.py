@@ -13,7 +13,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=TokenResponse)
 def login(credentials: LoginRequest, db: DbSession) -> TokenResponse:
     user = get_user_by_email(db, str(credentials.email))
-    if user is None or not user.is_active or not verify_password(credentials.password, user.password_hash):
+    if (
+        user is None
+        or not user.is_active
+        or not verify_password(credentials.password, user.password_hash)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

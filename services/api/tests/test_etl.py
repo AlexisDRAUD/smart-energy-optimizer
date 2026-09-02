@@ -19,9 +19,7 @@ def test_dashboard_data_is_served_from_transformed_tables(
     )
     sensors = client.get("/api/v1/quality/sensors", headers=viewer_headers)
     service_status = client.get("/api/v1/status", headers=viewer_headers)
-    recommendations = client.get(
-        "/api/v1/recommendations?site_id=LYO-01", headers=viewer_headers
-    )
+    recommendations = client.get("/api/v1/recommendations?site_id=LYO-01", headers=viewer_headers)
 
     assert overview.status_code == 200
     assert overview.json()["site_count"] == 3

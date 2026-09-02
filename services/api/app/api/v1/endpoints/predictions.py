@@ -40,7 +40,9 @@ def get_latest_prediction(
     _site_or_404(db, site_id)
     prediction = latest_prediction(db, site_id)
     if prediction is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No prediction available for this site")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No prediction available for this site"
+        )
     return prediction_response(prediction)
 
 

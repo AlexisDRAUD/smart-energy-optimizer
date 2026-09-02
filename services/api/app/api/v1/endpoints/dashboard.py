@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.contract import SENSORS, as_utc, require_utc_range, utc_iso, utc_now
+from app.core.contract import SENSORS, require_utc_range, utc_iso, utc_now
 from app.models.quality import DataQualityDaily, EtlRun, SensorStatus
 from app.models.reading import Reading
 from app.models.site import Site
@@ -90,7 +90,9 @@ def quality(
         default_start=now - timedelta(days=7),
         default_end=now,
     )
-    end_day = end_at.date() - timedelta(days=1) if end_at.time() == datetime.min.time() else end_at.date()
+    end_day = (
+        end_at.date() - timedelta(days=1) if end_at.time() == datetime.min.time() else end_at.date()
+    )
     statement = (
         select(DataQualityDaily)
         .where(

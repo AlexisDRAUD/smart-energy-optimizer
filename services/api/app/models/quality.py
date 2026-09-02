@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -16,7 +24,9 @@ class SensorStatus(Base):
             name="ck_sensor_status_sensor",
         ),
         CheckConstraint("status IN ('ok', 'failing')", name="ck_sensor_status_status"),
-        UniqueConstraint("site_id", "sensor", "observed_at", name="uq_sensor_status_site_sensor_observed"),
+        UniqueConstraint(
+            "site_id", "sensor", "observed_at", name="uq_sensor_status_site_sensor_observed"
+        ),
     )
 
     site_id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -35,9 +45,7 @@ class EtlRun(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -51,9 +59,7 @@ class EtlRun(Base):
 
 class DataQualityDaily(Base):
     __tablename__ = "data_quality_daily"
-    __table_args__ = (
-        UniqueConstraint("site_id", "day", name="uq_data_quality_daily_site_day"),
-    )
+    __table_args__ = (UniqueConstraint("site_id", "day", name="uq_data_quality_daily_site_day"),)
 
     site_id: Mapped[str] = mapped_column(String, primary_key=True)
     day: Mapped[date] = mapped_column(Date, primary_key=True)

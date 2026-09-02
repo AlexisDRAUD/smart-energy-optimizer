@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -76,8 +76,12 @@ def list_readings(
 
     points = []
     for measured_at, source_points in sorted(buckets.items()):
-        values = [point.consumption_kwh for point in source_points if point.consumption_kwh is not None]
-        quality = max(source_points, key=lambda point: QUALITY_ORDER[point.data_quality]).data_quality
+        values = [
+            point.consumption_kwh for point in source_points if point.consumption_kwh is not None
+        ]
+        quality = max(
+            source_points, key=lambda point: QUALITY_ORDER[point.data_quality]
+        ).data_quality
         points.append(
             {
                 "measured_at": utc_iso(measured_at),

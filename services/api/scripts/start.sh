@@ -4,81 +4,27 @@ set -eu
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$PROJECT_ROOT"
 
-PROFILE=${1:-${APP_PROFILE:-dev}}
+if [ "${1:-cloud}" != "cloud" ]; then
+  printf '%s\n' "Profil inconnu : ${1}. Utilisez 'cloud'." >&2
+  exit 2
+fi
 
-case "$PROFILE" in
-  dev|cloud)
+: "${DATABASE_URL:?DATABASE_URL must be set}"
+case "$DATABASE_URL" in
+  postgresql://*|postgresql+psycopg://*)
     ;;
   *)
-    printf '%s\n' "Profil inconnu : ${PROFILE}. Utilisez 'dev' ou 'cloud'." >&2
-    exit 2
+    printf '%s\n' 'DATABASE_URL doit utiliser PostgreSQL.' >&2
+    exit 1
     ;;
 esac
-
-if [ -f .env ]; then
-  set -a
-  . ./.env
-  set +a
-fi
-
-if [ "$PROFILE" = "dev" ]; then
-  DATABASE_URL=${DEV_DATABASE_URL:-sqlite:///./enervision.db}
-  export DATABASE_URL
-else
-  if [ -f .env.cloud ]; then
-    set -a
-    . ./.env.cloud
-    set +a
-  fi
-
-  : "${DATABASE_URL:?DATABASE_URL must be set for the cloud profile}"
-  case "$DATABASE_URL" in
-    postgresql://*|postgresql+psycopg://*)
-      ;;
-    *)
-      printf '%s\n' 'Le profil cloud exige une URL PostgreSQL dans DATABASE_URL.' >&2
-      exit 1
-      ;;
-  esac
-fi
 
 PYTHON=${PYTHON:-python3}
 if [ -x .venv/bin/python ]; then
   PYTHON=.venv/bin/python
 fi
 
-repair_stale_dev_database() {
-  if [ "$PROFILE" != "dev" ] || [ "$DATABASE_URL" != "sqlite:///./enervision.db" ] || [ ! -f enervision.db ]; then
-    return
-  fi
-
-  revision=$(
-    "$PYTHON" - <<'PY'
-import sqlite3
-
-connection = sqlite3.connect("enervision.db")
-try:
-    print(connection.execute("SELECT version_num FROM alembic_version").fetchone()[0])
-except sqlite3.OperationalError as error:
-    if "no such table" not in str(error):
-        raise
-finally:
-    connection.close()
-PY
-  )
-
-  if [ "$revision" = "20260902_0003" ]; then
-    backup="enervision.db.stale-alembic-$(date +%Y%m%d%H%M%S)"
-    printf '%s\n' "La base locale utilise une revision Alembic abandonnee. Sauvegarde : ${backup}"
-    mv enervision.db "$backup"
-  fi
-}
-
-prepare_cloud_database() {
-  if [ "$PROFILE" != "cloud" ]; then
-    return
-  fi
-
+prepare_database() {
   schema_state=$(
     "$PYTHON" - <<'PY'
 from sqlalchemy import inspect
@@ -140,15 +86,11 @@ until "$PYTHON" -c 'from app.db.session import verify_database_connection; verif
   sleep 1
 done
 
-repair_stale_dev_database
-prepare_cloud_database
+prepare_database
 
 printf '%s\n' 'Application des migrations...'
 "$PYTHON" -m alembic upgrade head
 
 PORT=${PORT:-8080}
 printf '%s\n' "Demarrage de l API sur http://localhost:${PORT}"
-if [ "$PROFILE" = "dev" ]; then
-  exec "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload
-fi
 exec "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

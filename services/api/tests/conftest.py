@@ -2,34 +2,70 @@ import os
 from collections.abc import Generator
 from pathlib import Path
 
-API_ROOT = Path(__file__).resolve().parents[1]
-TEST_DATABASE = API_ROOT / "test_enervision.db"
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DATABASE}"
-os.environ["JWT_SECRET_KEY"] = "test-only-secret-with-at-least-32-characters"
-os.environ["SEED_USER_PASSWORD"] = "EnerVisionDemo2026!"
-
+import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from psycopg import sql
+from sqlalchemy.engine import make_url
 
-from app.db.session import engine
-from app.main import app
+API_ROOT = Path(__file__).resolve().parents[1]
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg://seo:change_moi@127.0.0.1:5432/seo_test",
+)
+test_database_url = make_url(TEST_DATABASE_URL)
+if test_database_url.get_backend_name() != "postgresql" or not test_database_url.database:
+    raise RuntimeError("TEST_DATABASE_URL must point to a PostgreSQL database.")
+
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["JWT_SECRET_KEY"] = "test-only-secret-with-at-least-32-characters"
+os.environ["SEED_USER_PASSWORD"] = "EnerVisionDemo2026!"
+
+
+def _admin_database_url() -> str:
+    return test_database_url.set(
+        drivername="postgresql",
+        database="postgres",
+    ).render_as_string(hide_password=False)
+
+
+def _recreate_test_database() -> None:
+    with psycopg.connect(_admin_database_url(), autocommit=True) as connection:
+        database = sql.Identifier(test_database_url.database)
+        connection.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(database))
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(database))
+
+
+def _drop_test_database() -> None:
+    with psycopg.connect(_admin_database_url(), autocommit=True) as connection:
+        connection.execute(
+            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                sql.Identifier(test_database_url.database)
+            )
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
 def database() -> Generator[None, None, None]:
+    from app.db.init_db import seed_test_data
+    from app.db.session import SessionLocal, engine
+
     engine.dispose()
-    TEST_DATABASE.unlink(missing_ok=True)
-    config = Config(str(API_ROOT / "alembic.ini"))
-    command.upgrade(config, "head")
+    _recreate_test_database()
+    command.upgrade(Config(str(API_ROOT / "alembic.ini")), "head")
+    with SessionLocal() as db:
+        seed_test_data(db)
     yield
     engine.dispose()
-    TEST_DATABASE.unlink(missing_ok=True)
+    _drop_test_database()
 
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
+    from app.main import app
+
     with TestClient(app) as test_client:
         yield test_client
 

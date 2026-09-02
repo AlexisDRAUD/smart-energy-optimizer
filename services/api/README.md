@@ -135,56 +135,6 @@ NULL sans traçabilité.
 
 ## 8. Démarrage du projet
 
-### Démarrage local
-
-Prérequis : Python 3.11 ou version ultérieure.
-
-```bash
-# Depuis la racine du dépôt : créer l'environnement Python (une seule fois)
-python3 -m venv .venv
-
-# Installer les dépendances (une seule fois)
-.venv/bin/python -m pip install -r requirements.txt
-
-# Définir les variables du profil de développement
-cp .env.example .env
-
-# Appliquer les migrations et démarrer l'API locale
-./scripts/start.sh dev
-```
-
-Le profil `dev` est le profil par défaut : il utilise SQLite (`enervision.db`) et active le
-rechargement automatique. Si sa base locale contient la révision Alembic abandonnée
-`20260902_0003`, elle est sauvegardée sous `enervision.db.stale-alembic-<date>` puis recréée.
-
-Le profil `cloud` utilise exclusivement PostgreSQL, n'active pas le rechargement automatique
-et ne recrée jamais une base existante. S'il trouve un schéma du contrat sans historique
-Alembic, il initialise seulement ce suivi avec la révision courante. Créez sa configuration
-hors Git :
-
-```bash
-cp .env.cloud.example .env.cloud
-./scripts/start.sh cloud
-```
-
-Les deux profils vérifient la configuration et l'accès à la base, attendent jusqu'à 30 secondes
-si celle-ci démarre, puis appliquent les migrations Alembic. Le délai est configurable avec
-`DATABASE_WAIT_SECONDS`.
-L'API relit la base et régénère les 120 minutes de prédictions futures de chaque
-site toutes les 60 secondes (configurable avec `PREDICTION_REFRESH_INTERVAL_SECONDS`).
-Au premier démarrage, les données de démonstration sont insérées automatiquement dans la base.
-
-Pour recréer les données de démonstration après une modification du seed, avec
-la base SQLite locale par défaut, arrêtez l'API puis exécutez :
-
-```bash
-rm -f enervision.db
-./scripts/start.sh
-```
-
-Cette commande supprime uniquement la base SQLite locale de démonstration ; ne
-l'utilisez pas avec une base contenant des données réelles.
-
 Vérifier le démarrage :
 
 ```bash
@@ -196,20 +146,29 @@ La documentation interactive est disponible sur `http://localhost:8080/docs`.
 ### Démarrage avec Docker Compose
 
 ```bash
-# Créer la configuration locale et remplacer les valeurs de développement
+# Depuis la racine du depot, creer la configuration PostgreSQL et definir les secrets
 cp .env.example .env
 
 # Démarrer PostgreSQL et l'API
-JWT_SECRET_KEY="une-cle-secrete-d-au-moins-32-caracteres" docker compose up --build
+docker compose up --build
 ```
 
 L'API est exposée sur `http://localhost:8080`. Pour l'arrêter, utilisez
 `docker compose down`.
 
+Le schema PostgreSQL est initialise automatiquement au premier demarrage du
+volume. Verifiez-le avec `./scripts/verify-postgres-init.sh`.
+
 ### Comptes de démonstration
 
-Le mot de passe de développement est `EnerVisionDemo2026!` (ou la valeur de
-`SEED_USER_PASSWORD` dans `.env`).
+Les comptes sont ajoutes uniquement par le seed mock PostgreSQL. Apres le
+demarrage de Compose, chargez-les explicitement :
+
+```bash
+MOCK_DATA_CONFIRM=1 ./scripts/seed-mock-data.sh
+```
+
+Leur mot de passe est `EnerVisionDemo2026!`.
 
 | Nom | E-mail | Rôle | Mot de passe | Sites accessibles |
 |---|---|---|---|---|
@@ -227,14 +186,15 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 ### Commandes de maintenance
 
 ```bash
-# Lancer les tests
+# Lancer les tests (PostgreSQL Docker doit etre demarre)
+# TEST_DATABASE_URL peut remplacer la base isolee seo_test par defaut.
 .venv/bin/python -m pytest
 
 # Créer et appliquer une migration après modification des modèles
 .venv/bin/python -m alembic revision --autogenerate -m "description du changement"
 .venv/bin/python -m alembic upgrade head
 
-# Traiter les relevés déjà présents dans la base locale
+# Traiter les releves deja presents dans PostgreSQL
 .venv/bin/python scripts/run_etl_once.py
 ```
 
