@@ -12,6 +12,35 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    connection = op.get_bind()
+    user_site_codes = {
+        "camille.admin": "LYO-01",
+        "lucas.operator": "GRE-01",
+        "ines.analyst": "NAN-01",
+        "marc.viewer": "LYO-01",
+    }
+    usernames = set(connection.execute(sa.text("SELECT username FROM users")).scalars())
+    unmapped_usernames = sorted(usernames.difference(user_site_codes))
+    if unmapped_usernames:
+        raise RuntimeError(
+            "Cannot determine site assignments for users: " + ", ".join(unmapped_usernames)
+        )
+
+    required_site_codes = {user_site_codes[username] for username in usernames}
+    site_ids = dict(
+        connection.execute(
+            sa.text("SELECT code, id FROM sites WHERE code IN :site_codes").bindparams(
+                sa.bindparam("site_codes", expanding=True)
+            ),
+            {"site_codes": list(required_site_codes)},
+        ).all()
+    )
+    missing_site_codes = sorted(required_site_codes.difference(site_ids))
+    if missing_site_codes:
+        raise RuntimeError(
+            "Cannot determine site assignments because sites are missing: " + ", ".join(missing_site_codes)
+        )
+
     with op.batch_alter_table("users") as batch_op:
         batch_op.add_column(sa.Column("site_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
@@ -22,13 +51,12 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         )
 
-    op.execute(
-        """
-        UPDATE users
-        SET site_id = (SELECT id FROM sites ORDER BY id LIMIT 1)
-        WHERE site_id IS NULL
-        """
-    )
+    for username, site_code in user_site_codes.items():
+        if username in usernames:
+            connection.execute(
+                sa.text("UPDATE users SET site_id = :site_id WHERE username = :username"),
+                {"site_id": site_ids[site_code], "username": username},
+            )
 
     with op.batch_alter_table("users") as batch_op:
         batch_op.alter_column("site_id", existing_type=sa.Integer(), nullable=False)

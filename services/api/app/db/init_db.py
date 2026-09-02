@@ -11,6 +11,7 @@ from app.models.alert import Alert
 from app.models.reading import Reading
 from app.models.site import Site
 from app.models.user import User
+from app.services.prediction_service import refresh_stored_predictions
 
 
 def _consumption_value(base_consumption: float, recorded_at: datetime, offset: int) -> float:
@@ -65,24 +66,10 @@ def initialize_database(db: Session) -> None:
                     source="seed",
                 )
             )
-
-    for prediction_offset in range(1, 121):
-        recorded_at = now + timedelta(minutes=prediction_offset)
-        for index, site in enumerate(sites):
-            value = _consumption_value(base_consumption[index], recorded_at, 1440 + prediction_offset + index)
-            readings.append(
-                Reading(
-                    site_id=site.id,
-                    recorded_at=recorded_at,
-                    consumption_kwh_raw=value,
-                    consumption_kwh_imputed=None,
-                    data_quality="predicted",
-                    null_reasons=None,
-                    source="prediction",
-                )
-            )
-
     db.add_all(readings)
+    db.flush()
+    refresh_stored_predictions(db, now)
+
     db.add(
         Alert(
             site_id=sites[1].id,

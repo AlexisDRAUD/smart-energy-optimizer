@@ -9,3 +9,4 @@ pwdlib[argon2]>=0.2,<1.0
 python-multipart>=0.0.18,<1.0
 alembic>=1.14,<2.0
 pytest>=8.3,<9.0
+httpx2>=2.12,<3.0

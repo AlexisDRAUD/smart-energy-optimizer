@@ -148,16 +148,17 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 
 # Définir les variables locales, dont PROVISIONING_API_KEY
-cp .env .env
+cp .env.example .env
 
 # Appliquer les migrations et démarrer l'API
 ./scripts/start.sh
 ```
 
 Le script vérifie d'abord que la base configurée est accessible, applique les migrations
-Alembic puis démarre l'API avec rechargement
-automatique sur `http://localhost:8000`. Au premier démarrage, les données de
-démonstration sont insérées automatiquement dans la base.
+Alembic puis démarre l'API avec rechargement automatique sur `http://localhost:8000`.
+L'API relit la base et régénère les 120 minutes de prédictions futures de chaque
+site toutes les 60 secondes (configurable avec `PREDICTION_REFRESH_INTERVAL_SECONDS`).
+Au premier démarrage, les données de démonstration sont insérées automatiquement dans la base.
 
 Pour recréer les données de démonstration après une modification du seed, avec
 la base SQLite locale par défaut, arrêtez l'API puis exécutez :
@@ -169,6 +170,12 @@ rm -f enervision.db
 
 Cette commande supprime uniquement la base SQLite locale de démonstration ; ne
 l'utilisez pas avec une base contenant des données réelles.
+
+Pour une base existante, la migration d'accès par site associe explicitement
+`camille.admin`, `lucas.operator`, `ines.analyst` et `marc.viewer` à leurs sites
+de démonstration. Elle s'arrête avant tout changement si un autre utilisateur
+ne possède pas de correspondance fiable : son site doit être associé manuellement
+avant de relancer la migration.
 
 Vérifier le démarrage :
 
@@ -182,7 +189,7 @@ La documentation interactive est disponible sur `http://localhost:8000/docs`.
 
 ```bash
 # Créer la configuration locale et remplacer les valeurs de développement
-cp .env .env
+cp .env.example .env
 
 # Démarrer PostgreSQL et l'API
 JWT_SECRET_KEY="une-cle-secrete-d-au-moins-32-caracteres" docker compose up --build

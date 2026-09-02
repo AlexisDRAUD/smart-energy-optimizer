@@ -13,6 +13,7 @@ def test_current_reading_is_persisted(client: TestClient, auth_headers: dict[str
 
     assert response.status_code == 200
     assert response.json()["site_id"] == 1
+    assert response.json()["source"] != "prediction"
 
 
 def test_user_cannot_access_another_site(client: TestClient, auth_headers: dict[str, str]) -> None:

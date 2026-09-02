@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     seed_user_password: str = "EnerVisionDemo2026!"
     provisioning_api_key: str = Field(min_length=32)
+    prediction_refresh_interval_seconds: int = Field(default=60, ge=1)
 
 
 settings = Settings()
