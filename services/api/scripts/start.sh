@@ -98,7 +98,7 @@ with engine.connect() as connection:
         print("empty")
     elif all(
         table_name in tables
-        and set(Base.metadata.tables[table_name].columns).issubset(
+        and set(Base.metadata.tables[table_name].columns.keys()).issubset(
             {column["name"] for column in inspector.get_columns(table_name)}
         )
         for table_name in expected_tables
