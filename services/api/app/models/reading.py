@@ -1,23 +1,33 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, Float, JSON, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
 
 class Reading(Base):
     __tablename__ = "readings"
+    __table_args__ = (
+        CheckConstraint(
+            "data_quality IN ('good', 'partial', 'degraded', 'critical')",
+            name="ck_readings_data_quality",
+        ),
+        UniqueConstraint("site_id", "measured_at", name="uq_readings_site_measured"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    site_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
+    consumption_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
     consumption_kwh_raw: Mapped[float | None] = mapped_column(Float, nullable=True)
-    consumption_kwh_imputed: Mapped[float | None] = mapped_column(Float, nullable=True)
-    data_quality: Mapped[str] = mapped_column(String(20), default="good")
-    null_reasons: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    source: Mapped[str] = mapped_column(String(30), default="seed")
-    site: Mapped["Site"] = relationship(back_populates="readings")
+    is_imputed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    imputation_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    temperature_celsius: Mapped[float | None] = mapped_column(Float, nullable=True)
+    humidity_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_quality: Mapped[str] = mapped_column(String, nullable=False, default="good")
+    null_reasons: Mapped[list[str]] = mapped_column(
+        ARRAY(String).with_variant(JSON, "sqlite"), nullable=False, default=list
+    )
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

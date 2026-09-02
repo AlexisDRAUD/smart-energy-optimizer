@@ -1,75 +1,205 @@
-from datetime import UTC, datetime, timedelta
-from logging import getLogger
+from __future__ import annotations
 
-from sqlalchemy import delete, select
+from datetime import UTC, datetime, timedelta
+from math import sqrt
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
+from app.core.contract import as_utc
+from app.models.prediction import Prediction
 from app.models.reading import Reading
 from app.models.site import Site
 
-logger = getLogger(__name__)
 PREDICTION_HORIZON_MINUTES = 120
-PREDICTION_SOURCE = "prediction"
+
+
+def model_metadata() -> dict[str, object]:
+    """Describe the startup-loaded local fallback without requiring MLflow."""
+    return {
+        "model_name": settings.local_model_name,
+        "model_version": settings.local_model_version,
+        "trained_at": None,
+        "horizon_minutes": PREDICTION_HORIZON_MINUTES,
+        "test_metrics": {"mae": None, "rmse": None, "mape_percent": None},
+        "availability": "local_fallback",
+        "mlflow_available": False,
+    }
+
+
+def score_due_predictions(db: Session, scored_at: datetime) -> int:
+    """Attach real values to due forecasts once the ETL has written them."""
+    scored = 0
+    due_predictions = list(
+        db.scalars(
+            select(Prediction).where(
+                Prediction.actual_kwh.is_(None),
+                Prediction.target_at <= scored_at,
+            )
+        )
+    )
+    for prediction in due_predictions:
+        actual_kwh = db.scalar(
+            select(Reading.consumption_kwh).where(
+                Reading.site_id == prediction.site_id,
+                Reading.measured_at == prediction.target_at,
+            )
+        )
+        if actual_kwh is None:
+            continue
+        prediction.actual_kwh = actual_kwh
+        prediction.scored_at = scored_at
+        scored += 1
+    return scored
 
 
 def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
-    """Replace all forecasts with a two-hour, minute-level forecast for every site."""
-    forecast_start = (now or datetime.now(UTC)).replace(second=0, microsecond=0)
-    sites = list(db.scalars(select(Site).order_by(Site.id)))
-    db.execute(delete(Reading).where(Reading.source == PREDICTION_SOURCE))
+    """Persist one 120-minute forecast for the latest available reading of each site."""
+    predicted_at = as_utc(now or datetime.now(UTC)).replace(second=0, microsecond=0)
+    score_due_predictions(db, predicted_at)
+    created = 0
+    for site in db.scalars(select(Site).where(Site.status == "active")):
+        latest = db.scalar(
+            select(Reading)
+            .where(Reading.site_id == site.site_id)
+            .order_by(Reading.measured_at.desc())
+            .limit(1)
+        )
+        if latest is None:
+            continue
 
-    created_predictions = 0
-    for site in sites:
-        readings = list(
+        target_at = as_utc(latest.measured_at) + timedelta(minutes=PREDICTION_HORIZON_MINUTES)
+        existing = db.scalar(
+            select(Prediction.id).where(
+                Prediction.site_id == site.site_id,
+                Prediction.target_at == target_at,
+                Prediction.model_version == settings.local_model_version,
+                Prediction.horizon_minutes == PREDICTION_HORIZON_MINUTES,
+            )
+        )
+        if existing is not None:
+            continue
+
+        recent = list(
             db.scalars(
-                select(Reading)
-                .where(Reading.site_id == site.id, Reading.source != PREDICTION_SOURCE)
-                .order_by(Reading.recorded_at.desc())
+                select(Reading.consumption_kwh)
+                .where(Reading.site_id == site.site_id, Reading.consumption_kwh.is_not(None))
+                .order_by(Reading.measured_at.desc())
                 .limit(24)
             )
         )
-        values = [
-            reading.consumption_kwh_raw
-            if reading.consumption_kwh_raw is not None
-            else reading.consumption_kwh_imputed
-            for reading in readings
-        ]
-        known_values = [value for value in values if value is not None]
-        if not known_values:
-            logger.warning("No usable readings available to generate predictions for site %s", site.id)
+        if not recent:
             continue
-
-        baseline = sum(known_values) / len(known_values) * 1.05
-        for minute_offset in range(1, PREDICTION_HORIZON_MINUTES + 1):
-            variation = 1 + (minute_offset - PREDICTION_HORIZON_MINUTES / 2) * 0.0005
-            db.add(
-                Reading(
-                    site_id=site.id,
-                    recorded_at=forecast_start + timedelta(minutes=minute_offset),
-                    consumption_kwh_raw=round(baseline * variation, 2),
-                    consumption_kwh_imputed=None,
-                    data_quality="predicted",
-                    null_reasons=None,
-                    source=PREDICTION_SOURCE,
-                )
+        db.add(
+            Prediction(
+                site_id=site.site_id,
+                predicted_at=predicted_at,
+                target_at=target_at,
+                horizon_minutes=PREDICTION_HORIZON_MINUTES,
+                model_name=settings.local_model_name,
+                model_version=settings.local_model_version,
+                predicted_kwh=round(sum(recent) / len(recent), 3),
+                actual_kwh=None,
+                scored_at=None,
             )
-            created_predictions += 1
-
-    db.commit()
-    return created_predictions
-
-
-def get_stored_next_prediction(db: Session, site_id: int) -> Reading:
-    prediction = db.scalar(
-        select(Reading)
-        .where(
-            Reading.site_id == site_id,
-            Reading.source == PREDICTION_SOURCE,
-            Reading.recorded_at > datetime.now(UTC),
         )
-        .order_by(Reading.recorded_at)
+        created += 1
+    db.commit()
+    return created
+
+
+def latest_prediction(db: Session, site_id: str) -> Prediction | None:
+    return db.scalar(
+        select(Prediction)
+        .where(Prediction.site_id == site_id)
+        .order_by(Prediction.predicted_at.desc(), Prediction.id.desc())
         .limit(1)
     )
-    if prediction is None:
-        raise ValueError("No future prediction is available for this site")
-    return prediction
+
+
+def metric(values: list[tuple[float, float]]) -> dict[str, float | None]:
+    if not values:
+        return {"mae": None, "rmse": None, "mape_percent": None}
+    errors = [abs(predicted - actual) for predicted, actual in values]
+    return {
+        "mae": round(sum(errors) / len(errors), 3),
+        "rmse": round(sqrt(sum(error**2 for error in errors) / len(errors)), 3),
+        "mape_percent": round(
+            sum(error / abs(actual) * 100 for error, (_, actual) in zip(errors, values) if actual)
+            / sum(1 for _, actual in values if actual),
+            3,
+        )
+        if any(actual for _, actual in values)
+        else None,
+    }
+
+
+def performance_metrics(
+    db: Session,
+    site_id: str,
+    start_at: datetime,
+    end_at: datetime,
+) -> dict[str, object]:
+    scored = list(
+        db.scalars(
+            select(Prediction)
+            .where(
+                Prediction.site_id == site_id,
+                Prediction.actual_kwh.is_not(None),
+                Prediction.target_at >= start_at,
+                Prediction.target_at < end_at,
+            )
+            .order_by(Prediction.target_at)
+        )
+    )
+    model_values: list[tuple[float, float]] = []
+    persistence_values: list[tuple[float, float]] = []
+    linear_values: list[tuple[float, float]] = []
+    for prediction in scored:
+        actual = prediction.actual_kwh
+        if actual is None:
+            continue
+        model_values.append((prediction.predicted_kwh, actual))
+        baseline_time = as_utc(prediction.target_at) - timedelta(
+            minutes=prediction.horizon_minutes
+        )
+        latest = db.scalar(
+            select(Reading)
+            .where(
+                Reading.site_id == prediction.site_id,
+                Reading.measured_at <= baseline_time,
+                Reading.consumption_kwh.is_not(None),
+            )
+            .order_by(Reading.measured_at.desc())
+            .limit(1)
+        )
+        if latest is None or latest.consumption_kwh is None:
+            continue
+        persistence_values.append((latest.consumption_kwh, actual))
+        prior = db.scalar(
+            select(Reading)
+            .where(
+                Reading.site_id == prediction.site_id,
+                Reading.measured_at < latest.measured_at,
+                Reading.consumption_kwh.is_not(None),
+            )
+            .order_by(Reading.measured_at.desc())
+            .limit(1)
+        )
+        if prior is None or prior.consumption_kwh is None:
+            continue
+        linear_values.append(
+            (
+                latest.consumption_kwh
+                + (latest.consumption_kwh - prior.consumption_kwh)
+                * prediction.horizon_minutes,
+                actual,
+            )
+        )
+    return {
+        "sample_size": len(model_values),
+        "model": metric(model_values),
+        "persistence_baseline": metric(persistence_values),
+        "linear_baseline": metric(linear_values),
+    }

@@ -15,8 +15,6 @@ if [ -z "${DATABASE_URL:-}" ]; then
   export DATABASE_URL
 fi
 
-: "${PROVISIONING_API_KEY:?PROVISIONING_API_KEY must be set}"
-
 PYTHON=${PYTHON:-python3}
 if [ -x .venv/bin/python ]; then
   PYTHON=.venv/bin/python
@@ -28,5 +26,5 @@ printf '%s\n' 'Verification de l acces a la base de donnees...'
 printf '%s\n' 'Application des migrations...'
 "$PYTHON" -m alembic upgrade head
 
-printf '%s\n' 'Demarrage de l API sur http://localhost:8000'
-exec "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --reload
+printf '%s\n' 'Demarrage de l API sur http://localhost:8080'
+exec "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8080}" --reload

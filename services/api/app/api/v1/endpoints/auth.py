@@ -1,27 +1,30 @@
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, status
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-
-from app.api.deps import DbSession
+from app.api.deps import CurrentUser, DbSession
+from app.api.v1.serializers import user_response
+from app.config import settings
 from app.core.security import create_access_token, verify_password
-from app.crud.user import get_user_by_username
-from app.schemas.token import Token
+from app.crud.user import get_user_by_email
+from app.schemas.contract import IdentityResponse, LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/token", response_model=Token)
-def login_for_access_token(
-    db: DbSession,
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> Token:
-    user = get_user_by_username(db, form_data.username)
-    password = form_data.password.rstrip("\t\r\n")
-    if user is None or not user.is_active or not verify_password(password, user.hashed_password):
+@router.post("/login", response_model=TokenResponse)
+def login(credentials: LoginRequest, db: DbSession) -> TokenResponse:
+    user = get_user_by_email(db, str(credentials.email))
+    if user is None or not user.is_active or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return Token(access_token=create_access_token(user.username))
+    return TokenResponse(
+        access_token=create_access_token(user.email, user.role),
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.get("/me", response_model=IdentityResponse)
+def me(user: CurrentUser) -> dict[str, object]:
+    return user_response(user)
