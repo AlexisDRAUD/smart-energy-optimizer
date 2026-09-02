@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["./scripts/start.sh"]
+CMD ["./scripts/start.sh", "cloud"]

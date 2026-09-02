@@ -1,8 +1,10 @@
 .env
+.env.cloud
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 enervision.db
+enervision.db.stale-alembic-*
 test_enervision.db
 .DS_Store

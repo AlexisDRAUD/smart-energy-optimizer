@@ -38,7 +38,7 @@ Ce dépôt couvre **uniquement l'API back-end** en FastAPI. Le front-end
 | ORM | SQLAlchemy |
 | Migrations | Alembic |
 | Validation | Pydantic v2 |
-| Auth | JWT (OAuth2PasswordBearer) + accès limité au site associé |
+| Auth | JWT (OAuth2PasswordBearer) + rôles `viewer`, `operator`, `admin` |
 | Base de données | PostgreSQL (à confirmer selon choix infra, voir §6) |
 | Tests | Pytest |
 | Conteneurisation | Docker / Docker Compose |
@@ -79,20 +79,20 @@ Le seed contient :
 | Relevés | 24 heures de consommation réelle et 2 heures de prédiction par site, une donnée par minute |
 | Qualité | Trois relevés dégradés dont la valeur brute reste `NULL` |
 | Alertes | Une alerte active sur le site à forte consommation |
-| Utilisateurs | Quatre utilisateurs fictifs, chacun associé à un unique site |
+| Utilisateurs | Trois utilisateurs fictifs, un pour chaque rôle |
 
-Les identifiants de démonstration sont `camille.admin` (LYO-01),
-`lucas.operator` (GRE-01), `ines.analyst` (NAN-01) et `marc.viewer` (LYO-01).
-Le mot de passe est défini par `SEED_USER_PASSWORD` et vaut
-`EnerVisionDemo2026!` uniquement en développement.
+Les comptes de démonstration sont Camille Martin (`camille.martin@enervision.demo`),
+Lucas Bernard (`lucas.bernard@enervision.demo`) et Marc Legrand
+(`marc.legrand@enervision.demo`). Le mot de passe est défini par
+`SEED_USER_PASSWORD` et vaut `EnerVisionDemo2026!` uniquement en développement.
 
 **Endpoints principaux :**
 
 | Endpoint | Rôle |
 |---|---|
-| `POST /api/v1/auth/token` | Obtenir un JWT avec un utilisateur de la base |
+| `POST /api/v1/auth/login` | Obtenir un JWT avec un utilisateur de la base |
 | `GET /api/v1/sites` | Lister les sites industriels |
-| `GET /api/v1/sites/{site_id}/current` | Lire le dernier relevé stocké |
+| `GET /api/v1/sites/{site_id}/latest` | Lire le dernier relevé stocké |
 | `GET /api/v1/readings` / `POST /api/v1/readings/sites/{site_id}` | Consulter ou ajouter des relevés persistés |
 | `GET /api/v1/alerts` | Lister les alertes de consommation |
 | `GET /api/v1/predictions/sites/{site_id}/next` | Calculer une prévision depuis l'historique local |
@@ -127,12 +127,11 @@ NULL sans traçabilité.
 
 ## 7. Authentification et accès aux sites
 
-- Auth par **JWT** (`OAuth2PasswordBearer`), login via `POST /api/v1/auth/token`.
-- Chaque utilisateur est associé à **un seul site**. Les données, relevés,
-  alertes, statistiques et prévisions sont systématiquement limités à ce site.
-- Les sites et comptes sont créés par l'API de provisioning, protégée par la
-  clé technique `PROVISIONING_API_KEY` transmise dans l'en-tête
-  `X-Provisioning-Key`.
+- Auth par **JWT** (`OAuth2PasswordBearer`), login via `POST /api/v1/auth/login`.
+- Les comptes authentifiés lisent les données de tous les sites. Aucun site
+  n'est attribué arbitrairement à un utilisateur.
+- Le rôle `viewer` lit les données, `operator` peut aussi acquitter les alertes
+  et `admin` gère les comptes.
 
 ## 8. Démarrage du projet
 
@@ -147,16 +146,29 @@ python3 -m venv .venv
 # Installer les dépendances (une seule fois)
 .venv/bin/python -m pip install -r requirements.txt
 
-# Définir les variables locales, dont PROVISIONING_API_KEY
+# Définir les variables du profil de développement
 cp .env.example .env
 
-# Appliquer les migrations et démarrer l'API
-./scripts/start.sh
+# Appliquer les migrations et démarrer l'API locale
+./scripts/start.sh dev
 ```
 
-Le script vérifie d'abord la configuration et l'accès à la base, attend jusqu'à 30 secondes
-si celle-ci démarre, applique les migrations Alembic puis démarre l'API avec rechargement
-automatique sur `http://localhost:8080`. Le délai est configurable avec
+Le profil `dev` est le profil par défaut : il utilise SQLite (`enervision.db`) et active le
+rechargement automatique. Si sa base locale contient la révision Alembic abandonnée
+`20260902_0003`, elle est sauvegardée sous `enervision.db.stale-alembic-<date>` puis recréée.
+
+Le profil `cloud` utilise exclusivement PostgreSQL, n'active pas le rechargement automatique
+et ne recrée jamais une base existante. S'il trouve un schéma du contrat sans historique
+Alembic, il initialise seulement ce suivi avec la révision courante. Créez sa configuration
+hors Git :
+
+```bash
+cp .env.cloud.example .env.cloud
+./scripts/start.sh cloud
+```
+
+Les deux profils vérifient la configuration et l'accès à la base, attendent jusqu'à 30 secondes
+si celle-ci démarre, puis appliquent les migrations Alembic. Le délai est configurable avec
 `DATABASE_WAIT_SECONDS`.
 L'API relit la base et régénère les 120 minutes de prédictions futures de chaque
 site toutes les 60 secondes (configurable avec `PREDICTION_REFRESH_INTERVAL_SECONDS`).
@@ -172,12 +184,6 @@ rm -f enervision.db
 
 Cette commande supprime uniquement la base SQLite locale de démonstration ; ne
 l'utilisez pas avec une base contenant des données réelles.
-
-Pour une base existante, la migration d'accès par site associe explicitement
-`camille.admin`, `lucas.operator`, `ines.analyst` et `marc.viewer` à leurs sites
-de démonstration. Elle s'arrête avant tout changement si un autre utilisateur
-ne possède pas de correspondance fiable : son site doit être associé manuellement
-avant de relancer la migration.
 
 Vérifier le démarrage :
 
@@ -205,18 +211,17 @@ L'API est exposée sur `http://localhost:8080`. Pour l'arrêter, utilisez
 Le mot de passe de développement est `EnerVisionDemo2026!` (ou la valeur de
 `SEED_USER_PASSWORD` dans `.env`).
 
-| Utilisateur | Mot de passe | Site accessible |
-|---|---|---|
-| `camille.admin` | `EnerVisionDemo2026!` | `LYO-01` |
-| `lucas.operator` | `EnerVisionDemo2026!` | `GRE-01` |
-| `ines.analyst` | `EnerVisionDemo2026!` | `NAN-01` |
-| `marc.viewer` | `EnerVisionDemo2026!` | `LYO-01` |
+| Nom | E-mail | Rôle | Mot de passe | Sites accessibles |
+|---|---|---|---|---|
+| Camille Martin | `camille.martin@enervision.demo` | `admin` | `EnerVisionDemo2026!` | Tous |
+| Lucas Bernard | `lucas.bernard@enervision.demo` | `operator` | `EnerVisionDemo2026!` | Tous |
+| Marc Legrand | `marc.legrand@enervision.demo` | `viewer` | `EnerVisionDemo2026!` | Tous |
 
 ```bash
 # Obtenir un jeton JWT pour appeler les routes protégées
-curl -X POST http://localhost:8080/api/v1/auth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=camille.admin&password=EnerVisionDemo2026!"
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"camille.martin@enervision.demo","password":"EnerVisionDemo2026!"}'
 ```
 
 ### Commandes de maintenance
@@ -255,14 +260,14 @@ Réponse :
 
 ### Authentification JWT
 
-Toutes les routes sous `/api/v1`, sauf `POST /api/v1/auth/token`, nécessitent
+Toutes les routes sous `/api/v1`, sauf `POST /api/v1/auth/login`, nécessitent
 un jeton Bearer. Connectez-vous avec un compte de démonstration en envoyant des
-données `application/x-www-form-urlencoded` :
+données JSON :
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=camille.admin&password=EnerVisionDemo2026!"
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"camille.martin@enervision.demo","password":"EnerVisionDemo2026!"}'
 ```
 
 Réponse `200` :
@@ -280,44 +285,38 @@ Conservez la valeur de `access_token` et transmettez-la dans l'en-tête
 ```bash
 TOKEN="collez-ici-la-valeur-de-access_token"
 curl http://localhost:8080/api/v1/sites \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer ${TOKEN}"
 ```
 
-Un identifiant ou mot de passe incorrect renvoie `401` :
+Un e-mail ou mot de passe incorrect renvoie `401` :
 
 ```json
-{"detail":"Incorrect username or password"}
+{"detail":"Incorrect email or password"}
 ```
 
-Un jeton absent, invalide ou expiré renvoie `401`. Un jeton valide qui tente
-d'accéder à un autre site renvoie `403`.
+Un jeton absent, invalide ou expiré renvoie `401`. Les utilisateurs connectés
+peuvent consulter tous les sites ; un rôle insuffisant sur une action restreinte
+renvoie `403`.
 
 ### Accès aux sites
 
-| Utilisateur | Site accessible |
-|---|---|
-| `camille.admin` | `LYO-01` |
-| `lucas.operator` | `GRE-01` |
-| `ines.analyst` | `NAN-01` |
-| `marc.viewer` | `LYO-01` |
+| Nom | E-mail | Rôle | Accès |
+|---|---|---|---|
+| Camille Martin | `camille.martin@enervision.demo` | `admin` | Lecture de tous les sites et gestion des comptes |
+| Lucas Bernard | `lucas.bernard@enervision.demo` | `operator` | Lecture de tous les sites et acquittement des alertes |
+| Marc Legrand | `marc.legrand@enervision.demo` | `viewer` | Lecture de tous les sites |
 
 ### Référence des endpoints
 
 | Méthode | Endpoint | Authentification | Description |
 |---|---|---|---|
 | `GET` | `/health` | Aucune | État de l'API |
-| `POST` | `/api/v1/auth/token` | Aucune | Obtenir un jeton JWT |
-| `GET` | `/api/v1/sites` | Utilisateur connecté | Son site |
-| `GET` | `/api/v1/sites/{site_id}` | Utilisateur connecté | Détail de son site |
-| `GET` | `/api/v1/sites/{site_id}/current` | Utilisateur connecté | Dernier relevé de son site |
-| `GET` | `/api/v1/readings` | Utilisateur connecté | Relevés de son site |
-| `POST` | `/api/v1/readings/sites/{site_id}` | Utilisateur connecté | Ajouter un relevé à son site |
-| `GET` | `/api/v1/alerts` | Utilisateur connecté | Alertes de son site |
-| `GET` | `/api/v1/predictions/sites/{site_id}/next` | Utilisateur connecté | Prévision de son site |
-| `GET` | `/api/v1/stats/summary` | Utilisateur connecté | Indicateurs de son site |
-| `GET` | `/api/v1/provisioning/users` | Clé technique | Lister les utilisateurs |
-| `POST` | `/api/v1/provisioning/users` | Clé technique | Créer un utilisateur et l'associer à un site |
-| `POST` | `/api/v1/provisioning/sites` | Clé technique | Créer un site |
+| `POST` | `/api/v1/auth/login` | Aucune | Obtenir un jeton JWT |
+| `GET` | `/api/v1/sites` | Utilisateur connecté | Tous les sites |
+| `GET` | `/api/v1/sites/{site_id}` | Utilisateur connecté | Détail d'un site |
+| `GET` | `/api/v1/sites/{site_id}/latest` | Utilisateur connecté | Dernier relevé d'un site |
+| `GET` | `/api/v1/readings` | Utilisateur connecté | Relevés d'un site |
+| `GET` | `/api/v1/alerts` | Utilisateur connecté | Alertes d'un site |
 
 ### Sites
 
@@ -410,7 +409,7 @@ tableau de relevés triés du plus récent au plus ancien :
 ]
 ```
 
-Ajouter un relevé au site associé au compte :
+Ajouter un relevé pour un site :
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/readings/sites/1 \
