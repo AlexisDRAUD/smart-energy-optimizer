@@ -36,7 +36,7 @@ export async function getReadings({ siteId, start, end, granularity = 'minute', 
         consumption_kwh_raw: point.is_imputed ? null : point.consumption_kwh,
         consumption_kwh_imputed: point.is_imputed ? point.consumption_kwh : null,
         data_quality: point.data_quality,
-        null_reasons: [],
+        null_reasons: null,
         source: 'reading',
     }))
 }
