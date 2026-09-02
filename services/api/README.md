@@ -76,7 +76,7 @@ Le seed contient :
 | Donnée | Contenu |
 |---|---|
 | Sites | Trois sites industriels fictifs à Lyon, Grenoble et Nantes |
-| Relevés | 48 heures de consommation par site, avec variations jour/nuit |
+| Relevés | 24 heures de consommation réelle et 2 heures de prédiction par site, une donnée par minute |
 | Qualité | Trois relevés dégradés dont la valeur brute reste `NULL` |
 | Alertes | Une alerte active sur le site à forte consommation |
 | Utilisateurs | Quatre utilisateurs fictifs, chacun associé à un unique site |
@@ -148,7 +148,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 
 # Définir les variables locales, dont PROVISIONING_API_KEY
-cp .env.example .env
+cp .env .env
 
 # Appliquer les migrations et démarrer l'API
 ./scripts/start.sh
@@ -158,6 +158,17 @@ Le script vérifie d'abord que la base configurée est accessible, applique les 
 Alembic puis démarre l'API avec rechargement
 automatique sur `http://localhost:8000`. Au premier démarrage, les données de
 démonstration sont insérées automatiquement dans la base.
+
+Pour recréer les données de démonstration après une modification du seed, avec
+la base SQLite locale par défaut, arrêtez l'API puis exécutez :
+
+```bash
+rm -f enervision.db
+./scripts/start.sh
+```
+
+Cette commande supprime uniquement la base SQLite locale de démonstration ; ne
+l'utilisez pas avec une base contenant des données réelles.
 
 Vérifier le démarrage :
 
@@ -171,7 +182,7 @@ La documentation interactive est disponible sur `http://localhost:8000/docs`.
 
 ```bash
 # Créer la configuration locale et remplacer les valeurs de développement
-cp .env.example .env
+cp .env .env
 
 # Démarrer PostgreSQL et l'API
 JWT_SECRET_KEY="une-cle-secrete-d-au-moins-32-caracteres" docker compose up --build
@@ -448,14 +459,22 @@ Réponse `200` :
 
 ```json
 {
+  "id": 4321,
   "site_id": 1,
-  "predicted_consumption_kwh": 304.35,
-  "based_on_readings": 24
+  "recorded_at": "2026-09-01T13:00:00Z",
+  "consumption_kwh_raw": 304.35,
+  "consumption_kwh_imputed": null,
+  "data_quality": "predicted",
+  "null_reasons": null,
+  "source": "prediction"
 }
 ```
 
-La prévision est une estimation calculée à partir des 24 derniers relevés
-exploitables du site. Les statistiques globales sont récupérées ainsi :
+La prévision reprend le même format et la même colonne `consumption_kwh_raw`
+qu'un relevé courant, afin de l'afficher dans la même série de consommation.
+Elle est persistée dans les données de démonstration, avec une donnée par minute
+pendant les deux heures suivant le dernier relevé réel. Son origine reste identifiable
+par `source: "prediction"`. Les statistiques du site sont récupérées ainsi :
 
 ```bash
 curl http://localhost:8000/api/v1/stats/summary \
@@ -467,7 +486,7 @@ Réponse `200` :
 ```json
 {
   "site_count": 1,
-  "reading_count": 48,
+  "reading_count": 1560,
   "active_alert_count": 0,
   "average_consumption_kwh": 300.12
 }

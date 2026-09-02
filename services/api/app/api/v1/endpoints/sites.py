@@ -31,7 +31,10 @@ def get_current_reading(site_id: int, _: SiteUser, db: DbSession) -> ReadingRead
     if get_site(db, site_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
     reading = db.scalar(
-        select(Reading).where(Reading.site_id == site_id).order_by(Reading.recorded_at.desc()).limit(1)
+        select(Reading)
+        .where(Reading.site_id == site_id, Reading.source != "prediction")
+        .order_by(Reading.recorded_at.desc())
+        .limit(1)
     )
     if reading is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No reading available for this site")
