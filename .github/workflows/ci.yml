@@ -28,11 +28,10 @@ jobs:
   # Job Test : tests unitaires + couverture du service API.
   # La suite exige un vrai PostgreSQL : conftest.py recree une base de test,
   # joue les migrations Alembic puis insere le jeu de donnees de test.
-  # Les identifiants viennent des secrets de l'environnement GitHub "dev".
+  # Les identifiants viennent des secrets *de depot*.
   test:
     runs-on: ubuntu-latest
     needs: lint
-    environment: dev
     services:
       postgres:
         image: postgres:16
