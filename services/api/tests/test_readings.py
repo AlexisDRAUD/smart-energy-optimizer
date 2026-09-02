@@ -1,31 +1,65 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 
-def test_readings_preserve_missing_raw_values(client: TestClient, auth_headers: dict[str, str]) -> None:
-    response = client.get("/api/v1/readings?site_id=1", headers=auth_headers)
-
-    assert response.status_code == 200
-    readings = response.json()
-    missing_reading = next(reading for reading in readings if reading["consumption_kwh_raw"] is None)
-    assert missing_reading["consumption_kwh_imputed"] is not None
-    assert missing_reading["null_reasons"] == ["scheduled_sensor_maintenance"]
-
-
-def test_missing_raw_value_requires_reason(client: TestClient, auth_headers: dict[str, str]) -> None:
-    response = client.post(
-        "/api/v1/readings/sites/1",
-        headers=auth_headers,
-        json={
-            "recorded_at": "2026-09-01T09:00:00Z",
-            "consumption_kwh_raw": None,
-            "data_quality": "partial",
+def test_readings_aggregate_paginate_and_report_completeness(
+    client: TestClient, viewer_headers: dict[str, str]
+) -> None:
+    end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    start = end - timedelta(hours=2)
+    response = client.get(
+        "/api/v1/readings",
+        headers=viewer_headers,
+        params={
+            "site_id": "LYO-01",
+            "start": start.isoformat().replace("+00:00", "Z"),
+            "end": end.isoformat().replace("+00:00", "Z"),
+            "granularity": "hour",
+            "limit": 1,
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    body = response.json()
+    assert body["site_id"] == "LYO-01"
+    assert body["granularity"] == "hour"
+    assert len(body["points"]) == 1
+    assert body["total"] == 2
+    assert body["completeness"]["expected_points"] == 2
+    assert body["completeness"]["received_points"] == 2
+    assert set(body["points"][0]) == {
+        "measured_at",
+        "consumption_kwh",
+        "is_imputed",
+        "data_quality",
+    }
 
 
-def test_readings_for_another_site_are_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
-    response = client.get("/api/v1/readings?site_id=2", headers=auth_headers)
+def test_empty_or_invalid_reading_windows_follow_contract(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    empty = client.get(
+        "/api/v1/readings",
+        headers=auth_headers,
+        params={
+            "site_id": "LYO-01",
+            "start": "2020-01-01T00:00:00Z",
+            "end": "2020-01-01T01:00:00Z",
+        },
+    )
+    invalid = client.get(
+        "/api/v1/readings",
+        headers=auth_headers,
+        params={
+            "site_id": "LYO-01",
+            "start": "2026-01-01T00:00:00",
+            "end": "2026-01-01T01:00:00Z",
+        },
+    )
 
-    assert response.status_code == 403
+    assert empty.status_code == 200
+    assert empty.json()["points"] == []
+    assert empty.json()["completeness"]["missing_points"] == 60
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "validation_error"

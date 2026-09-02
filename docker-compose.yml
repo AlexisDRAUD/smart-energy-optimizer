@@ -9,7 +9,7 @@ services:
       - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./db/migrations/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -20,20 +20,19 @@ services:
     build:
       context: ./services/api
     image: smart-energy-optimizer-api:local
-    command: >
-      sh -c "alembic stamp head &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      PROVISIONING_API_KEY: ${PROVISIONING_API_KEY}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD}
+      DATABASE_WAIT_SECONDS: ${DATABASE_WAIT_SECONDS:-30}
+      PORT: 8080
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${API_PORT:-8080}:8000"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')\""]
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/health')\""]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -2,15 +2,17 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from logging import getLogger
 
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.config import settings
-from app.db.init_db import initialize_database
 from app.db.session import SessionLocal, verify_database_connection
-from app.services.prediction_service import refresh_stored_predictions
+from app.schemas.contract import ErrorResponse
+from app.services.prediction_service import model_metadata, refresh_stored_predictions
 
 logger = getLogger(__name__)
 
@@ -37,8 +39,6 @@ async def refresh_predictions_periodically(stop_event: asyncio.Event) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     verify_database_connection()
-    with SessionLocal() as db:
-        initialize_database(db)
 
     stop_event = asyncio.Event()
     refresh_task = asyncio.create_task(refresh_predictions_periodically(stop_event))
@@ -51,8 +51,55 @@ async def lifespan(_: FastAPI):
             await refresh_task
 
 
-app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
-app.include_router(api_router, prefix=settings.api_v1_prefix)
+app = FastAPI(
+    title=settings.app_name,
+    version="1.0.0",
+    description="Authoritative v1 API contract for Smart Energy Optimizer.",
+    lifespan=lifespan,
+)
+app.include_router(
+    api_router,
+    prefix=settings.api_v1_prefix,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+
+
+def _error_code(status_code: int) -> str:
+    return {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        422: "validation_error",
+        503: "service_unavailable",
+    }.get(status_code, "http_error")
+
+
+@app.exception_handler(StarletteHTTPException)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, error: StarletteHTTPException) -> JSONResponse:
+    message = error.detail if isinstance(error.detail, str) else "Request failed"
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"error": {"code": _error_code(error.status_code), "message": message}},
+        headers=error.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_: Request, error: RequestValidationError) -> JSONResponse:
+    first_error = error.errors()[0] if error.errors() else {}
+    message = str(first_error.get("msg", "Invalid request"))
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"error": {"code": "validation_error", "message": message}},
+    )
 
 
 @app.get("/", response_class=HTMLResponse, tags=["root"])
@@ -79,4 +126,8 @@ def health_check() -> dict[str, str]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database unavailable",
         ) from error
-    return {"status": "ok", "database": "available"}
+    return {
+        "status": "ok",
+        "database": "available",
+        "model_version": model_metadata()["model_version"],
+    }
