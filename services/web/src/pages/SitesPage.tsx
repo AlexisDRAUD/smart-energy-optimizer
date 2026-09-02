@@ -7,7 +7,7 @@ import { formatDateTime, formatEnergy, formatQuality, getReadingValue } from '..
 
 export function SitesPage() {
     const { sites, error, isLoading, reload } = useSites()
-    const [readings, setReadings] = useState<Map<number, ApiReading>>(new Map())
+    const [readings, setReadings] = useState<Map<string, ApiReading>>(new Map())
     const [readingsError, setReadingsError] = useState<string | null>(null)
 
     const loadCurrentReadings = useCallback(async () => {

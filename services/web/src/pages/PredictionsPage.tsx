@@ -36,14 +36,14 @@ export function PredictionsPage() {
     }, [load])
 
     const currentValue = currentReading ? getReadingValue(currentReading) : null
-    const predictionValue = prediction?.consumption_kwh_raw ?? null
+    const predictionValue = prediction?.predicted_kwh ?? null
     const difference = predictionValue !== null && currentValue !== null ? predictionValue - currentValue : null
 
     return (
         <>
             <DashboardFilters sites={sites} siteId={siteId} period={period} onSiteChange={setSiteId} onPeriodChange={setPeriod} onRefresh={load} />
             <PageFeedback isLoading={sitesLoading || isLoading} error={sitesError ?? error} onRetry={() => { void reloadSites(); void load() }} />
-            {prediction && <section className="prediction-content"><article className="prediction-highlight"><p>Prévision de consommation H+2</p><strong>{formatEnergy(predictionValue)}</strong><span>Prévision générée pour {formatDateTime(prediction.recorded_at)}</span></article><section className="alert-summary-grid"><article className="metric-card"><p><span className="metric-dot blue" /> Dernière consommation</p><strong>{formatEnergy(currentValue)}</strong><small>{currentReading && formatDateTime(currentReading.recorded_at)}</small></article><article className="metric-card"><p><span className="metric-dot teal" /> Évolution prévue</p><strong>{difference === null ? '—' : `${difference > 0 ? '+' : ''}${formatEnergy(difference)}`}</strong><small>Par rapport au dernier relevé</small></article><article className="metric-card"><p><span className="metric-dot green" /> Qualité de la donnée</p><strong>Prédite</strong><small>Source : {prediction.source}</small></article></section></section>}
+            {prediction && <section className="prediction-content"><article className="prediction-highlight"><p>Prévision de consommation H+2</p><strong>{formatEnergy(predictionValue)}</strong><span>Prévision générée pour {formatDateTime(prediction.target_at)}</span></article><section className="alert-summary-grid"><article className="metric-card"><p><span className="metric-dot blue" /> Dernière consommation</p><strong>{formatEnergy(currentValue)}</strong><small>{currentReading && formatDateTime(currentReading.recorded_at)}</small></article><article className="metric-card"><p><span className="metric-dot teal" /> Évolution prévue</p><strong>{difference === null ? '—' : `${difference > 0 ? '+' : ''}${formatEnergy(difference)}`}</strong><small>Par rapport au dernier relevé</small></article><article className="metric-card"><p><span className="metric-dot green" /> Qualité de la donnée</p><strong>Prédite</strong><small>Modèle : {prediction.model_version}</small></article></section></section>}
         </>
     )
 }

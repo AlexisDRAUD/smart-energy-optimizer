@@ -14,17 +14,17 @@ Cette séparation permet de tracer l’origine de chaque valeur affichée et d�
 
 ## Démarrage local
 
-Prérequis : Node.js 20+ et l’API EnerVision démarrée sur `http://localhost:8000`.
+Prérequis : Node.js 20+ et l’API EnerVision démarrée sur `http://localhost:8080`.
 
 ```bash
 npm install
-cp .env .env
+cp .env.example .env
 npm run dev
 ```
 
 Le frontend est disponible sur `http://localhost:5173`.
 
-En développement, Vite redirige automatiquement les requêtes commençant par `/api` vers `http://localhost:8000`. Cela évite un blocage CORS entre les deux serveurs.
+En développement, Vite redirige automatiquement les requêtes commençant par `/api` vers `http://localhost:8080`. Cela évite un blocage CORS entre les deux serveurs.
 
 ### Configuration API
 
@@ -55,21 +55,21 @@ L’image compile le frontend avec Node.js, puis le sert avec Nginx sur le port 
 
 ```bash
 docker build -t enervision-front .
-docker run --rm --publish 8080:80 \
-  --env API_UPSTREAM=http://host.docker.internal:8000 \
+docker run --rm --publish 8081:80 \
+  --env API_UPSTREAM=http://host.docker.internal:8080 \
   enervision-front
 ```
 
-L’application est alors accessible sur `http://localhost:8080`.
+L’application est alors accessible sur `http://localhost:8081`.
 
 `API_UPSTREAM` doit désigner l’URL interne du backend :
 
 | Déploiement | Valeur `API_UPSTREAM` |
 | --- | --- |
-| API démarrée sur la machine hôte (macOS/Windows) | `http://host.docker.internal:8000` |
-| Frontend et API dans le même réseau Docker, service API nommé `api` | `http://api:8000` |
+| API démarrée sur la machine hôte (macOS/Windows) | `http://host.docker.internal:8080` |
+| Frontend et API dans le même réseau Docker, service API nommé `api` | `http://api:8080` |
 
-L’image utilise `http://api:8000` par défaut. En production, définissez cette variable avec l’adresse du service backend déployé. Le build conserve `VITE_BACK_API_URL` vide afin que le client appelle le proxy Nginx relatif `/api`.
+L’image utilise `http://api:8080` par défaut. En production, définissez cette variable avec l’adresse du service backend déployé. Le build conserve `VITE_BACK_API_URL` vide afin que le client appelle le proxy Nginx relatif `/api`.
 
 ## Architecture
 
@@ -94,22 +94,22 @@ src/
 
 ## Authentification
 
-1. L’écran de connexion envoie l’identifiant et le mot de passe vers `POST /api/v1/auth/token`.
+1. L’écran de connexion envoie l’adresse e-mail et le mot de passe au format JSON vers `POST /api/v1/auth/login`.
 2. L’API renvoie un JWT.
 3. Le token est conservé dans `sessionStorage`, uniquement pendant la session du navigateur.
 4. Le client HTTP ajoute `Authorization: Bearer <token>` à chaque appel protégé.
 5. La déconnexion efface le token et renvoie vers l’écran de connexion.
 
-Les utilisateurs de démonstration et leurs mots de passe sont définis côté backend. Un utilisateur provisionné est limité au site qui lui est associé : le frontend affiche donc uniquement les données autorisées par l’API.
+Les utilisateurs de démonstration et leurs mots de passe sont définis côté backend. L’API applique les rôles `viewer`, `operator` et `admin`; le frontend affiche les données que le token autorise.
 
 ## Pages et données affichées
 
 | Route | Vue | Endpoints utilisés |
 | --- | --- | --- |
-| `#/` | Vue d’ensemble | Sites, statistiques, dernier relevé, relevés, alertes et prochaine prédiction |
+| `#/` | Vue d’ensemble | `/overview`, sites, dernier relevé, relevés, prévisions, alertes et recommandations |
 | `#/alertes` | Alertes | Sites et alertes actives ou résolues |
 | `#/sites` | Sites | Sites et dernier relevé de chaque site autorisé |
-| `#/modele-h2` | Modèle H+2 | Sites, dernier relevé et première prédiction future |
+| `#/modele-h2` | Modèle H+2 | Sites, dernier relevé et dernière prévision |
 | `#/historique` | Historique | Sites et relevés persistés |
 | `#/qualite-des-donnees` | Qualité des données | Relevés persistés et leurs indicateurs de qualité |
 | `#/parametres` | Paramètres | Préférences locales de thème, langue et fuseau horaire |
@@ -118,14 +118,14 @@ Le routeur est basé sur le hash de l’URL. Les liens directs, ainsi que les bo
 
 ## Graphique réel / prédiction
 
-La vue d’ensemble récupère la liste complète des relevés du site avec `GET /api/v1/readings`.
+La vue d’ensemble récupère les relevés réels du site avec `GET /api/v1/readings` et les prévisions avec `GET /api/v1/predictions`.
 
-- Les relevés dont `source !== "prediction"` forment la courbe réelle bleue.
-- Les relevés dont `source === "prediction"` forment la courbe turquoise en pointillé.
+- Les points de `readings.points` forment la courbe réelle bleue.
+- Les éléments de `predictions.items` forment la courbe turquoise en pointillé.
 - Le trait vertical **MAINTENANT** est placé sur le dernier relevé réel.
-- L’axe temporel couvre les 24 heures de mesures minute par minute, suivies des 2 heures de prédictions persistées.
+- Le sélecteur permet d’afficher les dernières 24 heures, 7 jours ou 30 jours de mesures. Les prévisions disponibles prolongent la courbe.
 
-`GET /api/v1/sites/{site_id}/current` alimente les indicateurs « consommation actuelle » et ignore les points futurs. `GET /api/v1/predictions/sites/{site_id}/next` alimente l’indicateur de prochaine prédiction.
+`GET /api/v1/sites/{site_id}/latest` alimente l’indicateur « consommation actuelle ». `GET /api/v1/predictions/latest?site_id=...` alimente l’indicateur de prévision.
 
 ## Gestion des données incomplètes et prédites
 
@@ -133,13 +133,13 @@ Un relevé API contient toujours les colonnes suivantes :
 
 | Champ | Utilisation frontend |
 | --- | --- |
-| `consumption_kwh_raw` | Mesure réelle ; pour une prédiction, valeur calculée à afficher. Peut être `null` pour une mesure dégradée. |
-| `consumption_kwh_imputed` | Valeur imputée lorsque la mesure réelle est indisponible. |
-| `data_quality` | Affiché comme qualité de donnée : `good`, `partial`, `degraded`, `critical` ou `predicted`. |
-| `null_reasons` | Motifs qui expliquent une mesure réelle absente. |
-| `source` | Distingue les relevés de l’ETL ou de l’API des prédictions (`prediction`). |
+| `consumption_kwh` | Valeur de consommation réelle, éventuellement imputée. |
+| `is_imputed` | Indique qu’une valeur est imputée plutôt que relevée directement. |
+| `data_quality` | Affiché comme qualité de donnée : `good`, `partial`, `degraded` ou `critical`. |
+| `predicted_kwh` | Valeur de prévision retournée par les endpoints `/predictions`. |
+| `target_at` | Horodatage UTC auquel la prévision s’applique. |
 
-Le tableau Historique et la page Qualité des données affichent séparément la valeur brute et la valeur imputée. Aucun `null` n’est supprimé ou remplacé côté frontend.
+Le frontend conserve les valeurs absentes et les données imputées sans les masquer. Les prévisions ne sont jamais mélangées aux relevés réels.
 
 ## Préférences
 
@@ -157,6 +157,6 @@ Ces préférences sont actuellement conservées en mémoire pendant la session. 
 | Symptôme | Cause probable | Action |
 | --- | --- | --- |
 | `401 Unauthorized` à la connexion | Compte inconnu, mot de passe incorrect ou token expiré | Utiliser un compte seedé ou provisionner le compte côté API. |
-| Les appels API échouent depuis Vite | API FastAPI non démarrée | Vérifier `http://localhost:8000/health`. |
+| Les appels API échouent depuis Vite | API FastAPI non démarrée | Vérifier `http://localhost:8080/health`. |
 | Les appels échouent sur un environnement déployé | URL API ou politique CORS incorrecte | Définir `VITE_BACK_API_URL` et autoriser l’origine du frontend dans l’API. |
 | Les prédictions n’apparaissent pas | Ancienne base de démonstration non réinitialisée | Appliquer la procédure de réinitialisation documentée dans le README du backend. |

@@ -4,9 +4,9 @@ import type { ApiSite } from '../../types/api'
 
 export type DashboardFiltersProps = {
     sites: ApiSite[]
-    siteId: number | null
+    siteId: string | null
     period: string
-    onSiteChange: (siteId: number) => void
+    onSiteChange: (siteId: string) => void
     onPeriodChange: (period: string) => void
     onRefresh: () => void | Promise<void>
 }
@@ -16,7 +16,7 @@ export function DashboardFilters({ sites, siteId, period, onSiteChange, onPeriod
         <section className="filters-card" aria-label="Filtres du tableau de bord">
             <label htmlFor="dashboard-site">
                 <span>Site</span>
-                <select id="dashboard-site" value={siteId ?? ''} onChange={(event) => onSiteChange(Number(event.target.value))} disabled={!sites.length}>
+                <select id="dashboard-site" value={siteId ?? ''} onChange={(event) => onSiteChange(event.target.value)} disabled={!sites.length}>
                     {!sites.length && <option value="">Aucun site disponible</option>}
                     {sites.map((site) => <option value={site.id} key={site.id}>{site.name} — {site.city}</option>)}
                 </select>

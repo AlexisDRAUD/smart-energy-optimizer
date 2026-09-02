@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getAlerts } from '../api/alerts'
-import { getNextPrediction } from '../api/predictions'
+import { getNextPrediction, getPredictions } from '../api/predictions'
 import { getReadings } from '../api/readings'
+import { getRecommendations } from '../api/recommendations'
 import { getCurrentReading } from '../api/sites'
 import { getSummary } from '../api/stats'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { PageFeedback } from '../components/common/PageFeedback'
 import { periodOptions } from '../data/dashboard'
 import { useSiteSelection } from '../hooks/useSiteSelection'
-import type { ApiAlert, ApiPrediction, ApiReading, ApiSummary } from '../types/api'
-import { formatDateTime, formatEnergy, getReadingValue } from '../utils/formatters'
+import type { ApiAlert, ApiPrediction, ApiReading, ApiRecommendation, ApiSummary } from '../types/api'
+import { formatDateTime, formatEnergy, formatQuality, getReadingValue } from '../utils/formatters'
 
 type DashboardData = {
     summary: ApiSummary
     alerts: ApiAlert[]
     currentReading: ApiReading
     prediction: ApiPrediction
+    predictions: ApiPrediction[]
     readings: ApiReading[]
-    currentReadings: Map<number, ApiReading>
+    recommendations: ApiRecommendation[]
+    currentReadings: Map<string, ApiReading>
+}
+
+function getPeriodStart(period: string) {
+    const hours = period === 'Dernières 24 h' ? 24 : period === '7 derniers jours' ? 24 * 7 : 24 * 30
+    return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
 }
 
 export function DashboardPage() {
@@ -32,21 +40,23 @@ export function DashboardPage() {
         setIsLoading(true)
         setError(null)
         try {
-            const [summary, alerts, currentReading, prediction, readings, allCurrentReadings] = await Promise.all([
+            const [summary, alerts, currentReading, prediction, predictions, readings, recommendations, allCurrentReadings] = await Promise.all([
                 getSummary(),
                 getAlerts(),
                 getCurrentReading(siteId),
                 getNextPrediction(siteId),
-                getReadings({ siteId }),
+                getPredictions(siteId),
+                getReadings({ siteId, start: getPeriodStart(period) }),
+                getRecommendations(siteId),
                 Promise.all(sites.map(async (site) => [site.id, await getCurrentReading(site.id)] as const)),
             ])
-            setData({ summary, alerts, currentReading, prediction, readings, currentReadings: new Map(allCurrentReadings) })
+            setData({ summary, alerts, currentReading, prediction, predictions, readings, recommendations, currentReadings: new Map(allCurrentReadings) })
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
         } finally {
             setIsLoading(false)
         }
-    }, [siteId, sites])
+    }, [period, siteId, sites])
 
     useEffect(() => {
         void load()
@@ -59,29 +69,30 @@ export function DashboardPage() {
 
     const selectedSite = sites.find((site) => site.id === siteId)
     const currentValue = data ? getReadingValue(data.currentReading) : null
-    const predictionValue = data?.prediction.consumption_kwh_raw ?? null
-    const deviation = data && currentValue !== null && predictionValue !== null ? (currentValue - predictionValue) / predictionValue * 100 : null
-    const chartReadings = (data?.readings ?? []).slice().sort((left, right) => new Date(left.recorded_at).getTime() - new Date(right.recorded_at).getTime())
-    const realReadings = chartReadings.filter((reading) => reading.source !== 'prediction')
-    const persistedPredictions = chartReadings.filter((reading) => reading.source === 'prediction')
-    const chartValues = chartReadings.map((reading) => getReadingValue(reading)).filter((value): value is number => value !== null)
+    const predictionValue = data?.prediction.predicted_kwh ?? null
+    const deviation = data && currentValue !== null && predictionValue !== null && predictionValue !== 0 ? (currentValue - predictionValue) / predictionValue * 100 : null
+    const realReadings = (data?.readings ?? []).slice().sort((left, right) => new Date(left.recorded_at).getTime() - new Date(right.recorded_at).getTime())
+    const persistedPredictions = (data?.predictions ?? []).slice().sort((left, right) => new Date(left.target_at).getTime() - new Date(right.target_at).getTime())
+    const chartValues = [...realReadings.map(getReadingValue), ...persistedPredictions.map((prediction) => prediction.predicted_kwh)].filter((value): value is number => value !== null)
     const chartMin = Math.floor(Math.min(...chartValues, 0) / 50) * 50
     const chartMax = Math.ceil(Math.max(...chartValues, 1) / 50) * 50
     const chartRange = Math.max(chartMax - chartMin, 1)
     const plotBottom = 246
     const plotHeight = 190
-    const timelineStart = chartReadings[0] ? new Date(chartReadings[0].recorded_at).getTime() : 0
-    const timelineEnd = chartReadings[chartReadings.length - 1] ? new Date(chartReadings[chartReadings.length - 1].recorded_at).getTime() : timelineStart + 1
+    const timeline = [...realReadings.map((reading) => new Date(reading.recorded_at).getTime()), ...persistedPredictions.map((prediction) => new Date(prediction.target_at).getTime())].sort((left, right) => left - right)
+    const timelineStart = timeline[0] ?? 0
+    const timelineEnd = timeline[timeline.length - 1] ?? timelineStart + 1
     const timelineRange = Math.max(timelineEnd - timelineStart, 1)
-    const pointAt = (reading: ApiReading) => {
-        const value = getReadingValue(reading) ?? chartMin
-        const timestamp = new Date(reading.recorded_at).getTime()
+    const pointAt = (timestamp: number, value: number) => {
         const x = 58 + (timestamp - timelineStart) / timelineRange * 720
         const y = plotBottom - (value - chartMin) / chartRange * plotHeight
         return { x, y }
     }
-    const realPoints = realReadings.map(pointAt)
-    const predictionPoints = persistedPredictions.map(pointAt)
+    const realPoints = realReadings.flatMap((reading) => {
+        const value = getReadingValue(reading)
+        return value === null ? [] : [pointAt(new Date(reading.recorded_at).getTime(), value)]
+    })
+    const predictionPoints = persistedPredictions.map((prediction) => pointAt(new Date(prediction.target_at).getTime(), prediction.predicted_kwh))
     const lastRealPoint = realPoints[realPoints.length - 1]
     const realLinePoints = realPoints.map(({ x, y }) => `${x},${y}`).join(' ')
     const predictionLinePoints = lastRealPoint ? [lastRealPoint, ...predictionPoints].map(({ x, y }) => `${x},${y}`).join(' ') : ''
@@ -100,9 +111,9 @@ export function DashboardPage() {
                 <>
                     <section className="metrics-grid">
                         <article className="metric-card"><p><span className="metric-dot blue" /> Consommation actuelle</p><strong>{formatEnergy(currentValue)}</strong><small>{formatDateTime(data.currentReading.recorded_at)}</small></article>
-                        <article className="metric-card"><p><span className="metric-dot teal" /> Prédiction actuelle <em>H+2</em></p><strong>{formatEnergy(predictionValue)}</strong><small>Prévision pour {formatDateTime(data.prediction.recorded_at)}</small></article>
+                        <article className="metric-card"><p><span className="metric-dot teal" /> Prédiction actuelle <em>H+2</em></p><strong>{formatEnergy(predictionValue)}</strong><small>Prévision pour {formatDateTime(data.prediction.target_at)}</small></article>
                         <article className="metric-card"><p><span className="metric-dot orange" /> Écart modèle / réel</p><strong>{deviationLabel}</strong><small>Seuil d’alerte configurable à 15 %</small></article>
-                        <article className="metric-card"><p><span className="metric-dot green" /> État du parc</p><strong>{data.summary.site_count} sites</strong><small>{data.summary.active_alert_count} alerte{data.summary.active_alert_count > 1 ? 's' : ''} active{data.summary.active_alert_count > 1 ? 's' : ''}</small></article>
+                        <article className="metric-card"><p><span className="metric-dot green" /> État du parc</p><strong>{data.summary.site_count} sites</strong><small>{data.alerts.length} alerte{data.alerts.length > 1 ? 's' : ''} active{data.alerts.length > 1 ? 's' : ''}</small></article>
                     </section>
                     <section className="analysis-grid">
                         <article className="chart-card">
@@ -111,10 +122,10 @@ export function DashboardPage() {
                         </article>
                         <div className="right-column">
                             <article className="side-card alerts-card"><h2>État des alertes</h2><div className="alert-totals"><span>{data.alerts.filter((alert) => alert.severity === 'critical').length} Critique</span><span>{data.alerts.filter((alert) => alert.severity === 'warning').length} À surveiller</span></div>{data.alerts.slice(0, 2).map((alert) => <div className="alert-item" key={alert.id}><span className={`metric-dot ${alert.severity === 'critical' ? 'red' : 'orange'}`} /><div><strong>{alert.message}</strong><small>{formatDateTime(alert.triggered_at)}</small></div></div>)}</article>
-                            <article className="side-card recommendations-card"><h2>Recommandations</h2><div className="recommendation"><b>01</b><div><strong>Contrôler les alertes actives</strong><p>Traitez en priorité les écarts de consommation signalés.</p></div></div><div className="recommendation"><b>02</b><div><strong>Vérifier la qualité des données</strong><p>Les relevés dégradés restent identifiables dans l’historique.</p></div></div></article>
+                            <article className="side-card recommendations-card"><h2>Recommandations</h2>{data.recommendations.slice(0, 2).map((recommendation, index) => <div className="recommendation" key={recommendation.action}><b>{String(index + 1).padStart(2, '0')}</b><div><strong>{recommendation.action}</strong><p>Économie estimée : {formatEnergy(recommendation.estimated_savings_kwh)}</p></div></div>)}</article>
                         </div>
                     </section>
-                    <section className="sites-card"><div className="sites-heading"><h2>Vue multi-sites</h2><span>{data.summary.reading_count} relevés enregistrés</span></div><div className="table-scroll"><table><thead><tr><th>Site</th><th>Ville</th><th>Dernière consommation</th><th>Qualité</th><th>Dernière donnée</th></tr></thead><tbody>{sites.map((site) => { const reading = data.currentReadings.get(site.id); return <tr key={site.id}><td>{site.name}</td><td>{site.city}</td><td>{formatEnergy(reading ? getReadingValue(reading) : null)}</td><td>{reading?.data_quality ?? '—'}</td><td>{reading ? formatDateTime(reading.recorded_at) : '—'}</td></tr> })}</tbody></table></div></section>
+                    <section className="sites-card"><div className="sites-heading"><h2>Vue multi-sites</h2><span>{data.summary.reading_count} relevés enregistrés</span></div><div className="table-scroll"><table><thead><tr><th>Site</th><th>Ville</th><th>Dernière consommation</th><th>Qualité</th><th>Dernière donnée</th></tr></thead><tbody>{sites.map((site) => { const reading = data.currentReadings.get(site.id); return <tr key={site.id}><td>{site.name}</td><td>{site.city}</td><td>{formatEnergy(reading ? getReadingValue(reading) : null)}</td><td>{reading ? formatQuality(reading.data_quality) : '—'}</td><td>{reading ? formatDateTime(reading.recorded_at) : '—'}</td></tr> })}</tbody></table></div></section>
                 </>
             )}
         </>

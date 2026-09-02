@@ -1,5 +1,5 @@
 export type ApiSite = {
-    id: number
+    id: string
     code: string
     name: string
     city: string
@@ -9,8 +9,8 @@ export type ApiSite = {
 }
 
 export type ApiReading = {
-    id: number
-    site_id: number
+    id: string
+    site_id: string
     recorded_at: string
     consumption_kwh_raw: number | null
     consumption_kwh_imputed: number | null
@@ -21,18 +21,30 @@ export type ApiReading = {
 
 export type ApiAlert = {
     id: number
-    site_id: number
+    site_id: string
     severity: 'info' | 'warning' | 'critical'
     message: string
     triggered_at: string
     is_active: boolean
 }
 
+export type ApiRecommendation = {
+    action: string
+    estimated_savings_kwh: number
+}
+
 export type ApiPrediction = Omit<ApiReading, 'consumption_kwh_raw' | 'consumption_kwh_imputed' | 'data_quality' | 'null_reasons' | 'source'> & {
-    consumption_kwh_raw: number
-    consumption_kwh_imputed: null
-    data_quality: 'predicted'
-    null_reasons: null
+    predicted_at: string
+    target_at: string
+    horizon_minutes: number
+    predicted_kwh: number
+    model_version: string
+    actual_kwh: number | null
+    absolute_error: number | null
+    consumption_kwh_raw?: never
+    consumption_kwh_imputed?: never
+    data_quality?: never
+    null_reasons?: never
     source: 'prediction'
 }
 
@@ -46,4 +58,5 @@ export type ApiSummary = {
 export type ApiToken = {
     access_token: string
     token_type: string
+    expires_in: number
 }

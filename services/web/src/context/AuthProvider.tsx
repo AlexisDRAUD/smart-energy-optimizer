@@ -4,7 +4,7 @@ import { login as requestLogin, logout as clearToken } from '../api/auth'
 
 type AuthContextValue = {
     isAuthenticated: boolean
-    login: (username: string, password: string) => Promise<void>
+    login: (email: string, password: string) => Promise<void>
     logout: () => void
 }
 
@@ -15,8 +15,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
 
     const value = useMemo<AuthContextValue>(() => ({
         isAuthenticated,
-        async login(username, password) {
-            await requestLogin(username, password)
+        async login(email, password) {
+            await requestLogin(email, password)
             setIsAuthenticated(true)
         },
         logout() {

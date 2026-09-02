@@ -16,8 +16,8 @@ function groupByDay(readings: ApiReading[]): DailyReading[] {
         grouped.set(key, [...(grouped.get(key) ?? []), reading])
     })
     return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, dailyReadings]) => {
-        const values = dailyReadings.map(getReadingValue).filter((value): value is number => value !== null)
-        const latest = dailyReadings[0]
+        const values = dailyReadings.map((reading) => getReadingValue(reading)).filter((value): value is number => value !== null)
+        const latest = dailyReadings.reduce((current, reading) => reading.recorded_at > current.recorded_at ? reading : current)
         return { date, consumption: values.length ? values.reduce((total, value) => total + value, 0) : null, dataQuality: latest.data_quality }
     })
 }

@@ -36,6 +36,9 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, req
         let message = 'La requête vers l’API a échoué.'
         try {
             const body: unknown = await response.json()
+            if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'object' && body.error !== null && 'message' in body.error && typeof body.error.message === 'string') {
+                message = body.error.message
+            }
             if (typeof body === 'object' && body !== null && 'detail' in body && typeof body.detail === 'string') {
                 message = body.detail
             }
