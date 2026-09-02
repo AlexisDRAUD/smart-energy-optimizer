@@ -23,7 +23,7 @@ source (API du formateur)
 ```
 
 Une seule base PostgreSQL. Deux couches, brute et transformée. Le schema n'existe que dans
-`db/migrations/`.
+`services/backend/alembic/versions/`.
 
 ## Conventions générales
 
@@ -34,7 +34,7 @@ Une seule base PostgreSQL. Deux couches, brute et transformée. Le schema n'exis
 - Les noms de colonnes reprennent les noms de la source quand ils existent. Un renommage
   au passage est une erreur de correspondance qui ne se voit qu'en production.
 - Une valeur nulle recue est une valeur nulle stockée. Elle n'est jamais supprimée.
-- Aucun service ne crée de table a la main. Une table qui n'est pas dans `db/migrations/`
+- Aucun composant ne crée de table a la main. Une table qui n'est pas dans `services/backend/alembic/versions/`
   n'existe pas.
 
 ## Ce que la source envoie
@@ -204,7 +204,7 @@ affichage.
 
 Clé unique sur `(site_id, day)`.
 
-N'y va pas : le calcul des variables d'entrée du modèle, il est dans le paquet commun.
+N'y va pas : le calcul des variables d'entrée du modèle, il est dans `packages/features`.
 
 ## Etage 3. Modele
 
@@ -217,7 +217,7 @@ exploitant pour reperer le risque, decider, prevenir et agir. La colonne `horizo
 `predictions` existe quand meme, pour qu'ajouter un second horizon soit une ligne de
 configuration et pas une migration.
 
-Variables d'entrée : toutes calculées par `packages/common`, jamais ailleurs. Aucune n'est
+Variables d'entrée : toutes calculées par `packages/features`, jamais ailleurs. Aucune n'est
 stockée en base, elles se recalculent depuis `readings`.
 
 ## Etage 4. API
