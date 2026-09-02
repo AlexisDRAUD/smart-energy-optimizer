@@ -51,6 +51,26 @@ l'historique sert de preuve de contribution individuelle.
 - Une demande de fusion qui touche un contrat partage (schemas de l'API, paquet commun,
   migrations) previent explicitement les personnes concernees.
 
+### Cycle de vie
+
+1. Fusionner `dev` dans la branche et verifier que tout tourne encore.
+2. Ouvrir la demande de fusion vers `dev`. Titre au format des commits, description courte :
+   ce que ca fait, ce qu'il faut regarder.
+3. Une autre personne relit et approuve. L'auteur ne peut pas approuver sa propre demande.
+4. L'auteur fusionne une fois l'approbation obtenue, puis supprime la branche de travail.
+
+Une demande de fusion ouverte depuis plus d'une journee est un signal : soit la tache etait
+trop grosse, soit personne ne relit. Dans les deux cas, le dire.
+
+### Relire une demande de fusion
+
+Relire n'est pas chercher la faute. On regarde, dans cet ordre :
+
+- est-ce que ca fait ce que la carte demande
+- est-ce qu'une des regles de `CLAUDE.md` est enfreinte (secrets, couche brute, formules
+  dupliquees, logique metier dans le front)
+- est-ce que c'est lisible par quelqu'un d'autre dans six mois
+
 ### Une exception
 
 Le role administrateur du depot figure dans la liste de contournement de la regle. En pratique,
@@ -59,6 +79,14 @@ debloquer une situation où personne n'est disponible pour relire, typiquement l
 projet ou un correctif pendant la demonstration. Elle ne sert pas a éviter la revue : un
 contournement se signale a l'équipe.
 Tous les autres membres passent par une demande de fusion, sans exception.
+
+## Fusion de `dev` dans `main`
+
+`main` represente ce qui est demontrable. Elle bouge aux jalons. La fusion est declenchee par le Tech Lead, apres verification
+que `dev` tourne de bout en bout via `docker compose`.
+
+Le sens est toujours `dev` vers `main`. On ne travaille jamais directement sur `main`.
+
 
 ## Ce qui ne se pousse jamais
 

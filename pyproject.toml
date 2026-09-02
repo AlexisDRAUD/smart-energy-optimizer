@@ -1,0 +1,35 @@
+# Configuration des outils de qualite, partagee par tout le depot.
+# Un seul fichier, pour que le linter donne le meme verdict chez tout le monde
+# et dans la chaine d'integration.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["data", ".venv", "services/web"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # erreurs de style (pycodestyle)
+    "W",    # avertissements de style
+    "F",    # erreurs reelles (pyflakes) : variable non utilisee, import mort, nom inconnu
+    "I",    # ordre des imports
+    "N",    # conventions de nommage
+    "UP",   # tournures obsoletes de Python
+    "B",    # pieges classiques (flake8-bugbear)
+    "SIM",  # simplifications evidentes
+    "PTH",  # os.path remplace par pathlib
+    "S",    # securite (bandit) : secrets en dur, appels dangereux
+]
+ignore = [
+    "S101",  # assert autorise dans les tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "services"]
+addopts = "-q"
