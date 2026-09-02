@@ -1,22 +1,22 @@
-import psycopg
+from sqlalchemy import create_engine, text
 
 
 class PostgresStorage:
     def __init__(self, host: str, port: int, dbname: str, user: str, password: str):
-        self.conn = psycopg.connect(
-            host=host, port=port, dbname=dbname, user=user, password=password
-        )
+        url = f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
+        self.engine = create_engine(url)
 
     def ping(self) -> bool:
-        result = self.conn.execute("SELECT 1").fetchone()
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT 1")).fetchone()
         return result == (1,)
 
     def store_raw(self, source: str, payload: str) -> None:
-        self.conn.execute(
-            "INSERT INTO raw_readings (source, payload) VALUES (%s, %s)",
-            (source, payload),
-        )
-        self.conn.commit()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO raw_readings (source, payload) VALUES (:source, :payload)"),
+                {"source": source, "payload": payload},
+            )
 
     def close(self) -> None:
-        self.conn.close()
+        self.engine.dispose()
