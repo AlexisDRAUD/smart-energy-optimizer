@@ -1,46 +1,86 @@
 # ETL local EnerVision
 
-Cette première version lit un tableau de mesures depuis un fichier JSON, valide chaque ligne
-indépendamment, puis charge les lignes valides dans une base SQLite locale. Le payload JSON
-d'origine est conservé pour la traçabilité. La clé `(site_id, timestamp)` rend les relances
-idempotentes.
+## Objectif
 
-Le découpage `extract`, `transform`, `load` et `main` permet de remplacer ultérieurement la
-source JSON par l'API mock et SQLite par PostgreSQL sans réécrire les validations.
+Ce prototype permet de valider localement le pipeline ETL avec des données fictives :
+
+```text
+JSON local → validation Pydantic → SQLite
+```
+
+SQLite sert uniquement aux tests locaux. L’architecture cible utilisera PostgreSQL :
+
+```text
+API mock → collecteur → raw_readings → ETL → données nettoyées → ML
+```
+
+## Fonctionnement
+
+L’ETL exécute trois étapes :
+
+* **Extract** : lecture de `fixtures/demo_readings.json` ;
+* **Transform** : validation et normalisation des mesures avec Pydantic ;
+* **Load** : insertion des mesures valides dans SQLite.
+
+Une ligne invalide est journalisée sans interrompre le traitement. Les valeurs manquantes ne sont pas imputées et le payload source est conservé pour assurer sa traçabilité.
+
+L’unicité repose sur le couple `site_id + timestamp` : rejouer le même fichier ne crée donc aucun doublon.
 
 ## Installation
 
-Depuis `services/etl` avec Python 3.12 :
+Depuis la racine du dépôt, avec Python 3.12 :
 
-```powershell
+```bash
+cd services/etl
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m pip install ruff
 ```
 
 ## Exécution
 
-Le fichier de démonstration contient quatre lignes valides, dont une mesure incomplète, et une
-ligne volontairement invalide. Les chemins par défaut sont indépendants du dossier courant.
-
-```powershell
-python -m etl.main
+```bash
+./.venv/Scripts/python.exe -m etl.main
 ```
 
-Pour choisir les chemins :
+La base est créée automatiquement dans :
 
-```powershell
-python -m etl.main --input fixtures/demo_readings.json --database data/local.sqlite3
+```text
+data/enervision_etl.sqlite3
 ```
 
-La base par défaut est créée dans `data/enervision_etl.sqlite3`. Une ligne invalide est
-journalisée puis ignorée sans interrompre le lot.
+Pour repartir d’une base vide :
 
-## Tests
-
-```powershell
-python -m pytest tests
+```bash
+rm -i data/enervision_etl.sqlite3
 ```
 
-La documentation de l'API mock confirme que les futures extractions pourront utiliser
-`GET /api/v1/sites/{site_id}/current` ou `GET /api/v1/readings`.
+La première exécution doit produire :
+
+```text
+lues=5 valides=4 rejetées=1 insérées=4 doublons_ignorés=0
+```
+
+Une seconde exécution du même fichier doit produire :
+
+```text
+lues=5 valides=4 rejetées=1 insérées=0 doublons_ignorés=4
+```
+
+La cinquième mesure est volontairement invalide (`power_factor = 1.4`) afin de vérifier qu’une mauvaise ligne est rejetée sans bloquer les autres.
+
+## Tests et qualité
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests -v
+./.venv/Scripts/python.exe -m ruff check .
+./.venv/Scripts/python.exe -m ruff format --check .
+```
+
+La base SQLite générée et l’environnement `.venv` sont ignorés par Git. Le fichier JSON de démonstration ne contient aucune donnée réelle.
+
+## Limites actuelles
+
+Cette version ne se connecte pas encore à l’API mock, PostgreSQL, S3 ou au modèle ML et ne possède pas de planification automatique.
+
+La prochaine étape sera de lire les données brutes depuis PostgreSQL, puis de charger les mesures nettoyées dans les tables prévues pour le ML.
