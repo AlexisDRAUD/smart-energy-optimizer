@@ -60,6 +60,16 @@ def test_equivalent_timestamp_offsets_are_normalized_to_utc() -> None:
     assert offset_reading.timestamp.isoformat() == "2026-09-02T12:23:23+00:00"
 
 
+def test_date_without_time_is_rejected() -> None:
+    payload = valid_payload()
+    payload["timestamp"] = "2026-09-02"
+
+    result = transform_readings([payload])
+
+    assert result.readings == []
+    assert result.rejected_count == 1
+
+
 @pytest.mark.parametrize(
     ("field", "invalid_value"),
     [

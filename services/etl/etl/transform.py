@@ -48,6 +48,8 @@ class EnergyReading(BaseModel):
     def validate_timestamp(cls, value: Any) -> datetime:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("timestamp doit être une date ISO sous forme de chaîne")
+        if "T" not in value:
+            raise ValueError("timestamp doit contenir une date et une heure ISO")
 
         normalized_value = f"{value[:-1]}+00:00" if value.endswith("Z") else value
         try:
