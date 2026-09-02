@@ -23,3 +23,9 @@ def test_missing_raw_value_requires_reason(client: TestClient, auth_headers: dic
     )
 
     assert response.status_code == 422
+
+
+def test_readings_for_another_site_are_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get("/api/v1/readings?site_id=2", headers=auth_headers)
+
+    assert response.status_code == 403

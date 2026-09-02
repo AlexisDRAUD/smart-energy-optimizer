@@ -4,6 +4,7 @@ from collections.abc import Generator
 os.environ["DATABASE_URL"] = "sqlite:///./test_enervision.db"
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-with-at-least-32-characters"
 os.environ["SEED_USER_PASSWORD"] = "EnerVisionDemo2026!"
+os.environ["PROVISIONING_API_KEY"] = "test-only-provisioning-key-with-32-characters"
 
 import pytest
 from fastapi.testclient import TestClient

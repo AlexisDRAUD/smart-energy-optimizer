@@ -17,10 +17,11 @@ def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Token:
     user = get_user_by_username(db, form_data.username)
-    if user is None or not user.is_active or not verify_password(form_data.password, user.hashed_password):
+    password = form_data.password.rstrip("\t\r\n")
+    if user is None or not user.is_active or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return Token(access_token=create_access_token(user.username, [role.name for role in user.roles]))
+    return Token(access_token=create_access_token(user.username))

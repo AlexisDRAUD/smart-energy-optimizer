@@ -15,6 +15,8 @@ if [ -z "${DATABASE_URL:-}" ]; then
   export DATABASE_URL
 fi
 
+: "${PROVISIONING_API_KEY:?PROVISIONING_API_KEY must be set}"
+
 PYTHON=${PYTHON:-python3}
 if [ -x .venv/bin/python ]; then
   PYTHON=.venv/bin/python

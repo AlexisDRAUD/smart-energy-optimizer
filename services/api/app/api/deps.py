@@ -1,8 +1,8 @@
-from collections.abc import Callable
+from secrets import compare_digest
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -35,15 +35,20 @@ def get_current_user(db: DbSession, token: Annotated[str, Depends(oauth2_scheme)
     return user
 
 
-class RoleChecker:
-    def __init__(self, *allowed_roles: str) -> None:
-        self.allowed_roles = set(allowed_roles)
-
-    def __call__(self, user: Annotated[User, Depends(get_current_user)]) -> User:
-        user_roles = {role.name for role in user.roles}
-        if not self.allowed_roles.intersection(user_roles):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
-        return user
-
-
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_provisioning_key(
+    provisioning_key: Annotated[str | None, Header(alias="X-Provisioning-Key")] = None,
+) -> None:
+    if provisioning_key is None or not compare_digest(provisioning_key, settings.provisioning_api_key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid provisioning key")
+
+
+def require_site_access(site_id: int, user: CurrentUser) -> User:
+    if user.site_id != site_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access to this site is forbidden")
+    return user
+
+
+SiteUser = Annotated[User, Depends(require_site_access)]

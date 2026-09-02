@@ -10,7 +10,7 @@ from app.db.session import engine
 from app.models.alert import Alert
 from app.models.reading import Reading
 from app.models.site import Site
-from app.models.user import Role, User
+from app.models.user import User
 
 
 def initialize_database(db: Session) -> None:
@@ -19,8 +19,13 @@ def initialize_database(db: Session) -> None:
     if db.scalar(select(User.id).limit(1)) is not None:
         return
 
-    roles = {name: Role(name=name) for name in ("admin", "operator", "data_analyst", "user")}
-    db.add_all(roles.values())
+    sites = [
+        Site(code="LYO-01", name="Atelier Lyon Gerland", city="Lyon", surface_m2=4200, subscribed_power_kw=850),
+        Site(code="GRE-01", name="Usine Grenoble Sud", city="Grenoble", surface_m2=6800, subscribed_power_kw=1200),
+        Site(code="NAN-01", name="Entrepot Nantes Est", city="Nantes", surface_m2=3100, subscribed_power_kw=500),
+    ]
+    db.add_all(sites)
+    db.flush()
     password = get_password_hash(settings.seed_user_password)
     db.add_all(
         [
@@ -29,38 +34,31 @@ def initialize_database(db: Session) -> None:
                 email="camille.martin@enervision.demo",
                 full_name="Camille Martin",
                 hashed_password=password,
-                roles=[roles["admin"], roles["operator"]],
+                site=sites[0],
             ),
             User(
                 username="lucas.operator",
                 email="lucas.bernard@enervision.demo",
                 full_name="Lucas Bernard",
                 hashed_password=password,
-                roles=[roles["operator"]],
+                site=sites[1],
             ),
             User(
                 username="ines.analyst",
                 email="ines.dubois@enervision.demo",
                 full_name="Ines Dubois",
                 hashed_password=password,
-                roles=[roles["data_analyst"], roles["user"]],
+                site=sites[2],
             ),
             User(
                 username="marc.viewer",
                 email="marc.legrand@enervision.demo",
                 full_name="Marc Legrand",
                 hashed_password=password,
-                roles=[roles["user"]],
+                site=sites[0],
             ),
         ]
     )
-    sites = [
-        Site(code="LYO-01", name="Atelier Lyon Gerland", city="Lyon", surface_m2=4200, subscribed_power_kw=850),
-        Site(code="GRE-01", name="Usine Grenoble Sud", city="Grenoble", surface_m2=6800, subscribed_power_kw=1200),
-        Site(code="NAN-01", name="Entrepot Nantes Est", city="Nantes", surface_m2=3100, subscribed_power_kw=500),
-    ]
-    db.add_all(sites)
-    db.flush()
 
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     base_consumption = (278.0, 436.0, 164.0)

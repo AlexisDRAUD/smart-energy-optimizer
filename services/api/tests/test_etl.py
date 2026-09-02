@@ -6,6 +6,6 @@ def test_summary_uses_local_seeded_database(client: TestClient, auth_headers: di
 
     assert response.status_code == 200
     summary = response.json()
-    assert summary["site_count"] == 3
-    assert summary["reading_count"] == 144
-    assert summary["active_alert_count"] == 1
+    assert summary["site_count"] == 1
+    assert summary["reading_count"] == 48
+    assert summary["active_alert_count"] == 0

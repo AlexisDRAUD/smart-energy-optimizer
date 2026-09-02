@@ -11,6 +11,15 @@ def test_seeded_admin_can_obtain_token(client: TestClient) -> None:
     assert response.json()["token_type"] == "bearer"
 
 
+def test_seeded_admin_can_obtain_token_with_trailing_tab(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/token",
+        data={"username": "camille.admin", "password": "EnerVisionDemo2026!\t"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_invalid_password_is_rejected(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/token",

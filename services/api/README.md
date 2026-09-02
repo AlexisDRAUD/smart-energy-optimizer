@@ -38,7 +38,7 @@ Ce dépôt couvre **uniquement l'API back-end** en FastAPI. Le front-end
 | ORM | SQLAlchemy |
 | Migrations | Alembic |
 | Validation | Pydantic v2 |
-| Auth | JWT (OAuth2PasswordBearer) + rôles multiples par utilisateur |
+| Auth | JWT (OAuth2PasswordBearer) + accès limité au site associé |
 | Base de données | PostgreSQL (à confirmer selon choix infra, voir §6) |
 | Tests | Pytest |
 | Conteneurisation | Docker / Docker Compose |
@@ -52,7 +52,7 @@ app/
 ├── config.py            # Settings (variables d'env via pydantic-settings)
 ├── api/v1/endpoints/    # Routes HTTP (auth, users, sites, readings, alerts, predictions, stats)
 ├── core/                # Sécurité (JWT, hash), exceptions, logging
-├── models/              # Modèles SQLAlchemy (User, Role, Site, Reading, Alert)
+├── models/              # Modèles SQLAlchemy (User, Site, Reading, Alert)
 ├── schemas/             # Schémas Pydantic (validation entrée/sortie API)
 ├── crud/                # Requêtes base de données
 ├── services/            # Logique métier (ETL local, prédiction, alertes)
@@ -79,11 +79,11 @@ Le seed contient :
 | Relevés | 48 heures de consommation par site, avec variations jour/nuit |
 | Qualité | Trois relevés dégradés dont la valeur brute reste `NULL` |
 | Alertes | Une alerte active sur le site à forte consommation |
-| Utilisateurs | Quatre utilisateurs fictifs couvrant les rôles admin, operator, data_analyst et user |
+| Utilisateurs | Quatre utilisateurs fictifs, chacun associé à un unique site |
 
-Les identifiants de démonstration sont `camille.admin` (admin),
-`lucas.operator` (operator), `ines.analyst` (data analyst) et `marc.viewer`
-(lecture). Le mot de passe est défini par `SEED_USER_PASSWORD` et vaut
+Les identifiants de démonstration sont `camille.admin` (LYO-01),
+`lucas.operator` (GRE-01), `ines.analyst` (NAN-01) et `marc.viewer` (LYO-01).
+Le mot de passe est défini par `SEED_USER_PASSWORD` et vaut
 `EnerVisionDemo2026!` uniquement en développement.
 
 **Endpoints principaux :**
@@ -125,16 +125,14 @@ NULL sans traçabilité.
 - **Tests automatisés obligatoires**, fonctionnels et non-fonctionnels,
   intégrés au pipeline CI/CD.
 
-## 7. Authentification & rôles
+## 7. Authentification et accès aux sites
 
 - Auth par **JWT** (`OAuth2PasswordBearer`), login via `POST /api/v1/auth/token`.
-- Un utilisateur peut avoir **plusieurs rôles** (relation many-to-many
-  `User` ↔ `Role`), stockés en base et inclus dans le payload du token.
-- Les rôles envisagés : `admin`, `user`, `moderator`/`operator`, `editor`
-  (à ajuster selon les besoins métier réels : ex. `site_manager`,
-  `data_analyst`...).
-- Vérification des rôles via une dépendance réutilisable (`RoleChecker`)
-  dans `app/api/deps.py`, appliquée par route selon le besoin.
+- Chaque utilisateur est associé à **un seul site**. Les données, relevés,
+  alertes, statistiques et prévisions sont systématiquement limités à ce site.
+- Les sites et comptes sont créés par l'API de provisioning, protégée par la
+  clé technique `PROVISIONING_API_KEY` transmise dans l'en-tête
+  `X-Provisioning-Key`.
 
 ## 8. Démarrage du projet
 
@@ -149,7 +147,7 @@ python3 -m venv .venv
 # Installer les dépendances (une seule fois)
 .venv/bin/python -m pip install -r requirements.txt
 
-# Optionnel : définir les variables locales
+# Définir les variables locales, dont PROVISIONING_API_KEY
 cp .env.example .env
 
 # Appliquer les migrations et démarrer l'API
@@ -187,12 +185,12 @@ L'API est exposée sur `http://localhost:8000`. Pour l'arrêter, utilisez
 Le mot de passe de développement est `EnerVisionDemo2026!` (ou la valeur de
 `SEED_USER_PASSWORD` dans `.env`).
 
-| Utilisateur | Rôle principal |
-|---|---|
-| `camille.admin` | admin |
-| `lucas.operator` | operator |
-| `ines.analyst` | data_analyst |
-| `marc.viewer` | user |
+| Utilisateur | Mot de passe | Site accessible |
+|---|---|---|
+| `camille.admin` | `EnerVisionDemo2026!` | `LYO-01` |
+| `lucas.operator` | `EnerVisionDemo2026!` | `GRE-01` |
+| `ines.analyst` | `EnerVisionDemo2026!` | `NAN-01` |
+| `marc.viewer` | `EnerVisionDemo2026!` | `LYO-01` |
 
 ```bash
 # Obtenir un jeton JWT pour appeler les routes protégées
@@ -271,16 +269,17 @@ Un identifiant ou mot de passe incorrect renvoie `401` :
 {"detail":"Incorrect username or password"}
 ```
 
-Un jeton absent, invalide ou expiré renvoie `401`. Un jeton valide qui ne porte
-pas le rôle nécessaire renvoie `403` avec `{"detail":"Insufficient permissions"}`.
+Un jeton absent, invalide ou expiré renvoie `401`. Un jeton valide qui tente
+d'accéder à un autre site renvoie `403`.
 
-### Rôles et accès
+### Accès aux sites
 
-| Rôle | Accès |
+| Utilisateur | Site accessible |
 |---|---|
-| `user` / `data_analyst` | Lecture des sites, relevés, alertes, prévisions et statistiques |
-| `operator` | Accès en lecture et création de relevés ou de sites |
-| `admin` | Tous les droits, dont la gestion des utilisateurs |
+| `camille.admin` | `LYO-01` |
+| `lucas.operator` | `GRE-01` |
+| `ines.analyst` | `NAN-01` |
+| `marc.viewer` | `LYO-01` |
 
 ### Référence des endpoints
 
@@ -288,17 +287,17 @@ pas le rôle nécessaire renvoie `403` avec `{"detail":"Insufficient permissions
 |---|---|---|---|
 | `GET` | `/health` | Aucune | État de l'API |
 | `POST` | `/api/v1/auth/token` | Aucune | Obtenir un jeton JWT |
-| `GET` | `/api/v1/sites` | Tout utilisateur connecté | Lister les sites |
-| `POST` | `/api/v1/sites` | `admin` ou `operator` | Créer un site |
-| `GET` | `/api/v1/sites/{site_id}` | Tout utilisateur connecté | Détail d'un site |
-| `GET` | `/api/v1/sites/{site_id}/current` | Tout utilisateur connecté | Dernier relevé enregistré pour un site |
-| `GET` | `/api/v1/readings` | Tout utilisateur connecté | Lister les relevés, avec filtres optionnels |
-| `POST` | `/api/v1/readings/sites/{site_id}` | `admin` ou `operator` | Ajouter un relevé pour un site |
-| `GET` | `/api/v1/alerts` | Tout utilisateur connecté | Lister les alertes |
-| `GET` | `/api/v1/predictions/sites/{site_id}/next` | Tout utilisateur connecté | Prévision calculée depuis l'historique local |
-| `GET` | `/api/v1/stats/summary` | Tout utilisateur connecté | Indicateurs globaux du parc |
-| `GET` | `/api/v1/users` | `admin` | Lister les utilisateurs |
-| `POST` | `/api/v1/users` | `admin` | Créer un utilisateur |
+| `GET` | `/api/v1/sites` | Utilisateur connecté | Son site |
+| `GET` | `/api/v1/sites/{site_id}` | Utilisateur connecté | Détail de son site |
+| `GET` | `/api/v1/sites/{site_id}/current` | Utilisateur connecté | Dernier relevé de son site |
+| `GET` | `/api/v1/readings` | Utilisateur connecté | Relevés de son site |
+| `POST` | `/api/v1/readings/sites/{site_id}` | Utilisateur connecté | Ajouter un relevé à son site |
+| `GET` | `/api/v1/alerts` | Utilisateur connecté | Alertes de son site |
+| `GET` | `/api/v1/predictions/sites/{site_id}/next` | Utilisateur connecté | Prévision de son site |
+| `GET` | `/api/v1/stats/summary` | Utilisateur connecté | Indicateurs de son site |
+| `GET` | `/api/v1/provisioning/users` | Clé technique | Lister les utilisateurs |
+| `POST` | `/api/v1/provisioning/users` | Clé technique | Créer un utilisateur et l'associer à un site |
+| `POST` | `/api/v1/provisioning/sites` | Clé technique | Créer un site |
 
 ### Sites
 
@@ -325,11 +324,11 @@ Réponse `200` :
 ]
 ```
 
-Créer un site (rôle `admin` ou `operator`) :
+Créer un site avec la clé technique de provisioning :
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/sites \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST http://localhost:8000/api/v1/provisioning/sites \
+  -H "X-Provisioning-Key: ${PROVISIONING_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "BOR-01",
@@ -391,7 +390,7 @@ tableau de relevés triés du plus récent au plus ancien :
 ]
 ```
 
-Ajouter un relevé (rôle `admin` ou `operator`) :
+Ajouter un relevé au site associé au compte :
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/readings/sites/1 \
@@ -467,49 +466,28 @@ Réponse `200` :
 
 ```json
 {
-  "site_count": 3,
-  "reading_count": 144,
-  "active_alert_count": 1,
+  "site_count": 1,
+  "reading_count": 48,
+  "active_alert_count": 0,
   "average_consumption_kwh": 300.12
 }
 ```
 
-### Utilisateurs
+### Provisioning
 
-Les routes utilisateurs sont réservées au rôle `admin`. Lister les utilisateurs :
-
-```bash
-curl http://localhost:8000/api/v1/users \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Réponse `200` :
-
-```json
-[
-  {
-    "id": 1,
-    "username": "camille.admin",
-    "email": "camille.martin@enervision.demo",
-    "full_name": "Camille Martin",
-    "is_active": true,
-    "roles": [{"id": 1, "name": "admin"}]
-  }
-]
-```
-
-Créer un utilisateur :
+Les comptes et sites sont provisionnés avec une clé technique configurée dans
+`PROVISIONING_API_KEY`. Créer un utilisateur :
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/users \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST http://localhost:8000/api/v1/provisioning/users \
+  -H "X-Provisioning-Key: ${PROVISIONING_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "lea.manager",
-    "email": "lea.manager@example.test",
+    "email": "lea.manager@example.com",
     "full_name": "Lea Manager",
     "password": "UnMotDePasseRobuste2026!",
-    "role_names": ["operator", "user"]
+    "site_id": 1
   }'
 ```
 

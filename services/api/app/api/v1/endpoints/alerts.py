@@ -8,5 +8,5 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
 @router.get("", response_model=list[AlertRead])
-def list_alerts(_: CurrentUser, db: DbSession, active_only: bool = True) -> list[AlertRead]:
-    return get_alerts(db, active_only)
+def list_alerts(user: CurrentUser, db: DbSession, active_only: bool = True) -> list[AlertRead]:
+    return get_alerts(db, user.site_id, active_only)

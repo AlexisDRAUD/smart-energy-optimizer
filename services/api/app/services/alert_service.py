@@ -8,8 +8,8 @@ from app.models.reading import Reading
 from app.models.site import Site
 
 
-def get_alerts(db: Session, active_only: bool = True) -> list[Alert]:
-    statement = select(Alert).order_by(Alert.triggered_at.desc())
+def get_alerts(db: Session, site_id: int, active_only: bool = True) -> list[Alert]:
+    statement = select(Alert).where(Alert.site_id == site_id).order_by(Alert.triggered_at.desc())
     if active_only:
         statement = statement.where(Alert.is_active.is_(True))
     return list(db.scalars(statement))

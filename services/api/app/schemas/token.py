@@ -8,4 +8,3 @@ class Token(BaseModel):
 
 class TokenPayload(BaseModel):
     sub: str
-    roles: list[str]
