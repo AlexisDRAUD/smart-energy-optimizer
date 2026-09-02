@@ -18,6 +18,9 @@ cp .env.example .env      # puis remplir les deux secrets
 docker compose up -d
 ```
 
+L'API est disponible sur `http://localhost:8080` et sa documentation sur
+`http://localhost:8080/docs`.
+
 La procedure complete, et quoi faire quand le schema de la base change, sont dans
 `docs/setup.md`.
 
