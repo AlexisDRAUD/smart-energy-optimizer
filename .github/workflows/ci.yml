@@ -42,8 +42,10 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
         ports:
           - 5432:5432
+        # Le contexte "secrets" n'est pas autorise dans "options" : pg_isready
+        # sans argument suffit a savoir si le serveur accepte les connexions.
         options: >-
-          --health-cmd "pg_isready -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }}"
+          --health-cmd pg_isready
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
