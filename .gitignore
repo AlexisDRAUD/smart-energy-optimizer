@@ -30,9 +30,6 @@ models/*.joblib
 # Donnees locales
 data/
 *.csv
-*.db
-*.sqlite
-*.sqlite3
 !docs/**/*.csv
 
 # Outils
