@@ -2,9 +2,8 @@ from sqlalchemy import create_engine, text
 
 
 class PostgresStorage:
-    def __init__(self, host: str, port: int, dbname: str, user: str, password: str):
-        url = f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
-        self.engine = create_engine(url)
+    def __init__(self, database_url: str):
+        self.engine = create_engine(database_url)
 
     def ping(self) -> bool:
         with self.engine.connect() as conn:
