@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 import pytest
-from etl.transform import EnergyReading, transform_readings
+from app.etl.transform import EnergyReading, transform_readings
 
 
 def valid_payload() -> dict[str, Any]:

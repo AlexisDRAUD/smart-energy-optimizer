@@ -31,8 +31,6 @@ models/*.joblib
 data/
 *.csv
 *.db
-*.sqlite
-*.sqlite3
 !docs/**/*.csv
 
 # Outils

@@ -11,20 +11,31 @@ from psycopg import sql
 from sqlalchemy.engine import make_url
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://seo:change_moi@127.0.0.1:5432/seo_test",
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+test_database_url = (
+    make_url(TEST_DATABASE_URL).update_query_dict({"connect_timeout": "3"})
+    if TEST_DATABASE_URL
+    else None
 )
-test_database_url = make_url(TEST_DATABASE_URL)
-if test_database_url.get_backend_name() != "postgresql" or not test_database_url.database:
-    raise RuntimeError("TEST_DATABASE_URL must point to a PostgreSQL database.")
-
-os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+if test_database_url is not None:
+    if test_database_url.get_backend_name() != "postgresql" or not test_database_url.database:
+        raise RuntimeError("TEST_DATABASE_URL must point to a PostgreSQL database.")
+    os.environ["DATABASE_URL"] = test_database_url.render_as_string(hide_password=False)
+else:
+    # Some database-backed test modules import the shared engine during collection.
+    # This non-routable placeholder lets them be collected; the database fixture
+    # skips them before any connection is attempted.
+    os.environ["DATABASE_URL"] = (
+        "postgresql+psycopg://not-configured:not-configured@invalid.invalid/"
+        "not_configured?connect_timeout=1"
+    )
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-with-at-least-32-characters"
 os.environ["SEED_USER_PASSWORD"] = "EnerVisionDemo2026!"
 
 
 def _admin_database_url() -> str:
+    if test_database_url is None:
+        raise RuntimeError("TEST_DATABASE_URL is required for PostgreSQL tests.")
     return test_database_url.set(
         drivername="postgresql",
         database="postgres",
@@ -32,6 +43,8 @@ def _admin_database_url() -> str:
 
 
 def _recreate_test_database() -> None:
+    if test_database_url is None:
+        raise RuntimeError("TEST_DATABASE_URL is required for PostgreSQL tests.")
     with psycopg.connect(_admin_database_url(), autocommit=True) as connection:
         database = sql.Identifier(test_database_url.database)
         connection.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(database))
@@ -39,6 +52,8 @@ def _recreate_test_database() -> None:
 
 
 def _drop_test_database() -> None:
+    if test_database_url is None:
+        raise RuntimeError("TEST_DATABASE_URL is required for PostgreSQL tests.")
     with psycopg.connect(_admin_database_url(), autocommit=True) as connection:
         connection.execute(
             sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
@@ -47,8 +62,13 @@ def _drop_test_database() -> None:
         )
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def database() -> Generator[None, None, None]:
+    if test_database_url is None:
+        pytest.skip(
+            "PostgreSQL tests require an explicit TEST_DATABASE_URL; no database was contacted."
+        )
+
     from app.db.seed import seed_demo_data
     from app.db.session import SessionLocal, engine
 
@@ -65,7 +85,7 @@ def database() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def client(database: None) -> Generator[TestClient, None, None]:
     from app.main import app
 
     with TestClient(app) as test_client:
