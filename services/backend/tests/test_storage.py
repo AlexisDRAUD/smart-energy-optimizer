@@ -1,19 +1,17 @@
 import os
 
 import pytest
-from collector.storage import PostgresStorage
+from app.collector.storage import PostgresStorage
 from sqlalchemy import text
 
 
 @pytest.fixture
 def storage():
-    s = PostgresStorage(
-        host="127.0.0.1",
-        port="5432",
-        user="seo",
-        password=os.environ["POSTGRES_PASSWORD"],
-        dbname="seo",
+    url = os.environ.get(
+        "DATABASE_URL",
+        "postgresql+psycopg://seo:1234@127.0.0.1:5432/seo",
     )
+    s = PostgresStorage(url)
     with s.engine.begin() as conn:
         conn.execute(text("DELETE FROM raw_readings"))
     yield s

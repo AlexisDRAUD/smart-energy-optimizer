@@ -88,13 +88,13 @@ services:
   # commande differente. Ils gardent restart: unless-stopped, la cadence venant
   # d une boucle dans le processus et non d un ordonnanceur (decision 26).
   #
-  # collector:
-  #   <<: *backend
-  #   command: ["python", "-m", "app.collector"]
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
+  collector:
+    <<: *backend
+    command: ["python", "-m", "app.collector"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
   #
   # etl:
   #   <<: *backend
