@@ -11,15 +11,45 @@ Projet EnerVision, promotion EADL 2025, groupe 1.
 - Leve des alertes sur les depassements de seuil.
 - Propose des actions d'economie chiffrees en kWh.
 
-## Demarrer
+## Demarrer l'environnement
 
 ```bash
-cp .env.example .env      # puis remplir les deux secrets
-docker compose up -d
+cp .env.example .env
+docker compose up
 ```
 
-La procedure complete, et quoi faire quand le schema de la base change, sont dans
-`docs/setup.md`.
+C'est tout. Trois services demarrent dans cet ordre :
+
+1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
+2. `migrate`, qui applique les migrations Alembic puis insere les donnees de
+   demonstration, et s'arrete.
+3. `api`, qui ne demarre que quand `migrate` s'est terminee sans erreur.
+
+`migrate` et `api` sont la meme image lancee avec deux commandes differentes. Le
+collecteur et l'ETL la rejoindront de la meme facon quand leur code arrivera.
+
+Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL
+n'est joue par l'image PostgreSQL, et personne ne cree de table a la main.
+
+Pour repartir d'une base vide :
+
+```bash
+docker compose down -v && docker compose up
+```
+
+Les donnees de demonstration couvrent 24 heures de mesures a la minute sur les trois
+sites `LYO-01`, `GRE-01` et `NAN-01`, plus les etats des capteurs, la qualite, une
+alerte et une execution ETL. Le seed est rejouable : il ne fait rien si les sites
+existent deja. Pour demarrer sans lui, mettre `SEED_DEMO_DATA=0` dans le `.env`.
+
+Le seed cree egalement les comptes suivants avec le mot de passe
+`EnerVisionDemo2026!` :
+
+| Nom | E-mail | Role |
+|---|---|---|
+| Camille Martin | `camille.martin@enervision.demo` | `admin` |
+| Lucas Bernard | `lucas.bernard@enervision.demo` | `operator` |
+| Marc Legrand | `marc.legrand@enervision.demo` | `viewer` |
 
 ## Documentation
 

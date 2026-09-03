@@ -59,4 +59,4 @@ Trois regles simples, verifiables en relecture.
 - Une fonction fait une chose. Si son nom contient "et", elle en fait deux.
 - Le calcul et l'acces aux donnees sont separes. Une fonction qui lit la base et calcule en
   meme temps ne se teste pas sans base.
-- Ce qui est partage par plusieurs services vit dans `packages/common`, et rien d'autre n'y va.
+- Le calcul des variables du modele vit dans `packages/features`, et rien d'autre n'y va.
