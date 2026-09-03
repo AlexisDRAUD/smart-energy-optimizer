@@ -8,53 +8,52 @@ contenir d'autres dossiers (`services/`, `.github/`) ne sont pas listes.
 Toute la documentation du projet. Les contrats de donnees et d'API font foi, le reste explique
 et justifie. C'est aussi le dossier que lisent les assistants de code.
 
-## `packages/common/`
+## `packages/features/`
 
-Le code utilise par plusieurs services, écrit une seule fois. Surtout le calcul des variables
-d'entrée du modèle, importe a la fois par l'entrainement et par l'API. Si les deux calculaient
-la meme variable de deux façons, le modèle se dégraderait en production sans qu'aucun test
+Le calcul des variables d'entrée du modèle, écrit une seule fois, importé à la fois par
+l'entraînement (`services/ml`) et par le service (`services/backend`). Si les deux calculaient
+la même variable de deux façons, le modèle se dégraderait en production sans qu'aucun test
 n'échoue.
-N'y va pas : ce dont un seul service se sert.
 
-## `services/collector/`
+C'est sa seule raison d'être, et c'est le seul paquet partagé du dépôt.
+N'y va pas : tout le reste. Ce dont un seul composant se sert reste chez lui, et deux
+composants qui partagent du code sans cette raison-là devraient plutôt n'en faire qu'un.
 
-Interroge la source et écrit la réponse **telle quelle** dans la couche brute. Contient aussi
-les deux scripts d'amorçage, l'import des CSV et la reprise unique de l'historique.
-Tourne en permanence, une lecture par minute.
-N'y va pas : la moindre transformation. Ce qui est jeté ici est perdu définitivement.
+## `services/backend/`
 
-## `services/etl/`
+Le collecteur, l'ETL et l'API. Une seule image, lancée en plusieurs conteneurs avec des
+commandes différentes. C'est le seul composant qui touche à la base, et il en porte le schéma.
 
-Lit la couche brute, contrôle, répare, agrège, écrit la couche transformée. Tourne toutes les
-minutes, sur une fenêtre glissante de trente minutes, et peut être rejoué sur une fenêtre déjà
-traitée sans créer de doublon.
-N'y va pas : le calcul des variables d'entrée du modèle, il est dans le paquet commun.
+- `app/collector/` interroge la source et écrit la réponse **telle quelle** dans la couche
+  brute. Contient aussi les scripts d'amorçage. N'y va pas : la moindre transformation, ce qui
+  est jeté ici est perdu définitivement.
+- `app/etl/` lit la couche brute, contrôle, répare, agrège, écrit la couche transformée.
+  Rejouable sur une fenêtre déjà traitée sans créer de doublon. N'y va pas : le calcul des
+  variables du modèle, il est dans `packages/features`.
+- `app/api/`, `app/crud/`, `app/schemas/`, `app/services/` : le backend HTTP. Expose les
+  données, charge le modèle, calcule les seuils et les agrégats, émet les alertes. C'est le
+  seul composant que le front interroge. N'y va pas : l'accès direct à la base depuis
+  l'extérieur.
+- `app/db/` les modèles SQLAlchemy, la session et les données de démonstration.
+- `alembic/` les migrations. **Le schéma de la base n'existe que là.**
+
+N'y va pas : le code d'entraînement, il est dans `services/ml` et n'a pas les mêmes
+dépendances.
 
 ## `services/ml/`
 
-Entrainement, évaluation, publication dans MLflow. Lancé à la demande, pas en permanence.
-Produit un artefact versionné, pas un service.
-N'y va pas : le code qui sert les prédictions, il est dans l'API.
+Entraînement, évaluation, publication dans MLflow. Lancé à la demande, pas en permanence.
+Produit un artefact versionné, pas un service. Image séparée du backend : ses dépendances sont
+lourdes et ne servent qu'à lui.
 
-## `services/api/`
-
-Le backend. Expose les données, charge le modèle au démarrage, calcule les seuils, les
-agrégats et les recommandations, émet les alertes. C'est le seul composant que le front
-interroge.
-N'y va pas : l'accès direct a la base depuis l'exterieur.
+Il lit la base en SQL direct et n'y écrit rien, donc il n'importe pas les modèles du backend.
+N'y va pas : le code qui sert les prédictions, il est dans le backend.
 
 ## `services/web/`
 
 Le dashboard React. Affiche et filtre.
 N'y va pas : la logique metier. Aucun seuil, aucun agrégat, aucune règle. Une règle dupliquée
 dans le front finit par diverger, et elle n'est testée nulle part.
-
-## `db/migrations/`
-
-Les fichiers SQL qui créent et font évoluer le schema. **Le schema de la base n'existe que
-la.** Personne ne crée une table à la main, sinon la base distante et celle de chaque poste
-divergent en deux jours.
-N'y va pas : des données. Les migrations créent des structures, pas du contenu.
 
 ## `infra/`
 

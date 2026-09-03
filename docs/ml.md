@@ -12,7 +12,7 @@ derniere valeur connue vaut mieux qu'une prediction a trente minutes qui l'egale
 
 ## Variables d'entree
 
-Toutes calculees par `packages/common`, jamais ailleurs. Une formule dupliquee entre
+Toutes calculees par `packages/features`, jamais ailleurs. Une formule dupliquee entre
 l'entrainement et le service degrade le modele en production sans faire echouer un seul test.
 
 Familles retenues : valeurs recentes du site, agregats glissants, variables de calendrier
