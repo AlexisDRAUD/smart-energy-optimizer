@@ -1,6 +1,6 @@
 """Calcul des variables d'entree du modele.
 
-Importe par services/ml (entrainement) ET par services/api (service).
+Importe par services/ml (entrainement) ET par services/backend (service).
 Ne jamais dupliquer une de ces formules ailleurs : l'entrainement et le service
 calculeraient la meme variable de deux facons, le modele se degraderait en production
 sans qu'aucun test n'echoue.

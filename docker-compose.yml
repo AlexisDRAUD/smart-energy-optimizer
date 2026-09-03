@@ -83,6 +83,7 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${WEB_PORT:-80}:80"
+
   # Le collecteur et l ETL sont decommentes quand leur code arrive. Meme image,
   # commande differente. Ils gardent restart: unless-stopped, la cadence venant
   # d une boucle dans le processus et non d un ordonnanceur (decision 26).
@@ -102,17 +103,6 @@ services:
   #     migrate:
   #       condition: service_completed_successfully
   #   restart: unless-stopped
-  web:
-    build:
-      context: ./services/web
-      args:
-        VITE_BACK_API_URL: ""
-    image: smart-energy-optimizer-web:local
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:${WEB_PORT:-80}:80"
 
 volumes:
   db_data:
