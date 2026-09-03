@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getReadingValue, formatEnergy, formatDateTime, formatQuality } from '../utils/formatters'
+import { getReadingValue, formatEnergy, formatDateTime, formatQuality } from '../src/utils/formatters'
 
 describe('formatters', () => {
   it('getReadingValue prefers raw if present', () => {

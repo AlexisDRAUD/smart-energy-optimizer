@@ -8,7 +8,7 @@ if (typeof globalThis.sessionStorage === 'undefined') {
     return {
       getItem(key: string) {
         return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null
-n      },
+      },
       setItem(key: string, value: string) {
         store[key] = String(value)
       },
@@ -23,7 +23,7 @@ n      },
 }
 
 // dynamic import so the sessionStorage above is set before the module executes
-const { setAccessToken, getAccessToken } = await import('../api/client')
+const { setAccessToken, getAccessToken } = await import('../src/api/client')
 
 describe('api client', () => {
   it('stores and retrieves the access token via sessionStorage', () => {

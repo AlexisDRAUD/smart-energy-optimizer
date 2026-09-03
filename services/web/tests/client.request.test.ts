@@ -35,7 +35,7 @@ describe('apiRequest behaviors', () => {
     const fakeResponse = { ok: true, json: async () => ({ hello: 'world' }) }
     global.fetch = vi.fn(() => Promise.resolve(fakeResponse)) as any
 
-    const { apiRequest } = await import('../api/client')
+    const { apiRequest } = await import('../src/api/client')
     const result = await apiRequest('/test', { method: 'GET' }, false)
     expect(result).toEqual({ hello: 'world' })
     expect((global.fetch as any).mock.calls[0][0]).toBe('/test')
@@ -52,7 +52,7 @@ describe('apiRequest behaviors', () => {
     })
     global.fetch = spy as any
 
-    const { setAccessToken, apiRequest } = await import('../api/client')
+    const { setAccessToken, apiRequest } = await import('../src/api/client')
     setAccessToken('token-xyz')
     await apiRequest('/secure', { method: 'POST' }, true)
     expect(spy).toHaveBeenCalled()
@@ -68,7 +68,7 @@ describe('apiRequest behaviors', () => {
     })
     global.fetch = spy as any
 
-    const { apiRequest } = await import('../api/client')
+    const { apiRequest } = await import('../src/api/client')
     await apiRequest('/public', { method: 'GET' }, false)
     expect(spy).toHaveBeenCalled()
   })
@@ -77,7 +77,7 @@ describe('apiRequest behaviors', () => {
     const fakeResponse = { ok: false, status: 400, json: async () => ({ error: { message: 'bad things' } }) }
     global.fetch = vi.fn(() => Promise.resolve(fakeResponse)) as any
 
-    const { apiRequest, ApiError } = await import('../api/client')
+    const { apiRequest, ApiError } = await import('../src/api/client')
     await expect(apiRequest('/err', { method: 'GET' }, false)).rejects.toMatchObject({ message: 'bad things', status: 400 })
   })
 
@@ -85,7 +85,7 @@ describe('apiRequest behaviors', () => {
     const fakeResponse = { ok: false, status: 422, json: async () => ({ detail: 'validation failed' }) }
     global.fetch = vi.fn(() => Promise.resolve(fakeResponse)) as any
 
-    const { apiRequest } = await import('../api/client')
+    const { apiRequest } = await import('../src/api/client')
     await expect(apiRequest('/err2', { method: 'GET' }, false)).rejects.toMatchObject({ message: 'validation failed', status: 422 })
   })
 })
