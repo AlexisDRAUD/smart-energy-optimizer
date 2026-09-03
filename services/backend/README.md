@@ -102,9 +102,9 @@ Lucas Bernard (`lucas.bernard@enervision.demo`) et Marc Legrand
 Les relevés peuvent contenir une valeur brute `null` (maintenance capteur,
 perte réseau) avec `data_quality` (`good` / `partial` / `degraded` /
 `critical`) et `null_reasons`. **Ne jamais filtrer/ignorer un `null` : il doit
-être stocké tel quel avec son flag qualité.** Le pipeline ETL applique
-explicitement un forward fill à la valeur imputée, sans modifier la valeur
-brute (voir `app/etl/transform.py`).
+être stocké tel quel avec son flag qualité.** Le prototype ETL n'effectue encore
+aucune imputation : `consumption_kwh` et `consumption_kwh_raw` conservent tous
+deux la valeur originale, y compris `NULL`.
 
 **Bonne pratique imposée :** toujours stocker la valeur brute (NULL compris)
 **et** la valeur imputée dans deux colonnes distinctes. Ne jamais écraser un
@@ -186,17 +186,55 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 ### Commandes de maintenance
 
 ```bash
-# Lancer les tests (PostgreSQL Docker doit etre demarre)
-# TEST_DATABASE_URL peut remplacer la base isolee seo_test par defaut.
-.venv/bin/python -m pytest
+# Lancer les tests unitaires sans PostgreSQL
+.venv/bin/python -m pytest tests/test_etl_transform.py
 
 # Créer et appliquer une migration après modification des modèles
 .venv/bin/python -m alembic revision --autogenerate -m "description du changement"
 .venv/bin/python -m alembic upgrade head
 
-# Traiter les releves deja presents dans PostgreSQL
-.venv/bin/python scripts/run_etl_once.py
+# Executer une fois le pipeline JSON vers PostgreSQL
+docker compose run --rm etl
+
+# Lancer le test d'integration PostgreSQL dans Docker (base seo_test isolee)
+docker compose run --rm \
+  -e "TEST_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/seo_test" \
+  etl pytest tests/test_etl_postgres.py -v
 ```
+
+### ETL ponctuel JSON vers PostgreSQL
+
+Cette première étape valide le pipeline suivant avant sa connexion au collecteur :
+
+```text
+app/etl/fixtures/demo_readings.json → validation Pydantic → PostgreSQL readings
+```
+
+Le conteneur `etl` réutilise l'image, les dépendances, `DATABASE_URL`, les modèles
+SQLAlchemy et les sessions du backend. Il attend la réussite du service `migrate`,
+qui reste seul responsable du schéma Alembic.
+
+Le test PostgreSQL ne possède aucune URL locale par défaut : sans
+`TEST_DATABASE_URL`, il est immédiatement ignoré. La base de test indiquée est
+recréée puis supprimée par la suite de tests ; elle doit donc être distincte de la
+base de développement.
+
+Depuis la racine du dépôt :
+
+```bash
+docker compose up -d db
+docker compose run --rm migrate
+docker compose run --rm etl
+```
+
+La fixture contient cinq lignes fictives. Quatre sont chargées ; la cinquième est
+rejetée car son `power_factor` vaut `1.4`. Une seconde exécution n'ajoute aucune
+ligne grâce à la clé `(site_id, measured_at)`.
+
+Le chargeur copie uniquement `consumption_kwh` dans `consumption_kwh_raw` et
+`consumption_kwh`. Il ne convertit jamais `consumption_kw` et ne stocke pas les
+champs électriques absents de la table `readings`. Cette version ne lit encore ni
+l'API mock, ni `raw_readings`, et ne lance aucun traitement ML ou planificateur.
 
 ## 9. Utiliser l'API
 
