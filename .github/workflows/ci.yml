@@ -97,7 +97,7 @@ jobs:
   # couverture du front React (services/web).
   web-test:
     runs-on: ubuntu-latest
-    needs: web-build
+    needs: web-lint
     defaults:
       run:
         working-directory: services/web
