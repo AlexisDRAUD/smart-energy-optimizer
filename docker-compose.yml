@@ -101,6 +101,25 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: "no"
+  # Le collecteur et l ETL sont decommentes quand leur code arrive. Meme image,
+  # commande differente. Ils gardent restart: unless-stopped, la cadence venant
+  # d une boucle dans le processus et non d un ordonnanceur (decision 26).
+  #
+  collector:
+    <<: *backend
+    command: ["python", "-m", "app.collector"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  #
+  # etl:
+  #   <<: *backend
+  #   command: ["python", "-m", "app.etl"]
+  #   depends_on:
+  #     migrate:
+  #       condition: service_completed_successfully
+  #   restart: unless-stopped
 
 volumes:
   db_data:
