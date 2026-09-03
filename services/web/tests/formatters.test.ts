@@ -18,10 +18,9 @@ describe('formatters', () => {
   })
 
   it('formatEnergy formats numeric values with one decimal French locale and kWh', () => {
-    // 1234.56 -> "1 234,6 kWh" in fr-FR (non-breaking space)
     const out = formatEnergy(1234.56)
-    expect(out).toContain('kWh')
-    expect(out).toMatch(/1234|1.234|1\s234|1\u00A0234/) // tolerate different spacing representations
+    const normalized = out.replace(/[\u00A0\u202F\s]+/g, ' ')
+    expect(normalized).toBe('1 234,6 kWh')
   })
 
   it('formatDateTime returns a non-empty localized string including time', () => {

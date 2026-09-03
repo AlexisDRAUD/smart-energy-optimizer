@@ -19,9 +19,8 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   })()
 }
 
-// Ensure global.fetch exists in the environment (tests frequently mock it)
+// Ensure global.fetch exists in the environment (tests should mock it explicitly)
 if (typeof globalThis.fetch === 'undefined') {
-  ;(globalThis as any).fetch = (() => {
-    return (..._args: any[]) => Promise.resolve({ ok: true, json: async () => ({}) })
-  })()
+  ;(globalThis as any).fetch = (..._args: any[]) =>
+    Promise.reject(new Error('fetch is not available in this test environment; mock global.fetch in the test.'))
 }
