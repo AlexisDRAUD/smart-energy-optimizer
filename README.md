@@ -53,5 +53,14 @@ Le seed cree egalement les comptes suivants avec le mot de passe
 
 ## Documentation
 
-Tout est dans `docs/`. Commencer par `docs/architecture.md`.
+Tout est dans `docs/`.
+
+- `setup.md` : installer, travailler au quotidien, changer le schema. A lire en premier.
+- `architecture.md` : les composants, les images, la cadence, le stockage.
+- `structure.md` : a quoi sert chaque dossier, et surtout ce qui n'a pas a y aller.
+- `data-contract.md` et `api-contract.md` : les contrats, ils font foi.
+- `decisions.md` : le registre des decisions et leurs amendements.
+- `runbook.md` : diagnostiquer quand ca ne marche pas.
+- `quality.md`, `testing.md`, `security.md`, `ml.md` : le reste.
+
 Les regles de contribution sont dans `CONTRIBUTING.md`.
