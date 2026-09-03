@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import type { ApiReading } from '../src/types/api'
 import { getReadingValue, formatEnergy, formatDateTime, formatQuality } from '../src/utils/formatters'
 
 describe('formatters', () => {
   it('getReadingValue prefers raw if present', () => {
-    const reading = { consumption_kwh_raw: 12.345, consumption_kwh_imputed: 99.9 } as any
+    const reading = { consumption_kwh_raw: 12.345, consumption_kwh_imputed: 99.9 } as unknown as ApiReading
     expect(getReadingValue(reading)).toBe(12.345)
   })
 
   it('getReadingValue falls back to imputed when raw absent', () => {
-    const reading = { consumption_kwh_raw: null, consumption_kwh_imputed: 42 } as any
+    const reading = { consumption_kwh_raw: null, consumption_kwh_imputed: 42 } as unknown as ApiReading
     expect(getReadingValue(reading)).toBe(42)
   })
 
