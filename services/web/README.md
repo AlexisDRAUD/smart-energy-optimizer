@@ -18,9 +18,10 @@ Prérequis : Node.js 20+ et l’API EnerVision démarrée sur `http://localhost:
 
 ```bash
 npm install
-cp .env.example .env
 npm run dev
 ```
+
+Les variables `VITE_` sont lues dans le `.env` de la racine du depot, pas dans ce dossier (`envDir` dans `vite.config.ts`).
 
 Le frontend est disponible sur `http://localhost:5173`.
 

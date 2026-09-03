@@ -8,7 +8,15 @@ class Settings(BaseSettings):
     conteneurs separes mais partagent la meme base et le meme code.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Un seul fichier d environnement pour tout le depot, celui de la racine.
+    # ".env" couvre la commande lancee depuis la racine, "../../.env" celle
+    # lancee depuis services/backend (alembic, pytest). Dans le conteneur
+    # aucun des deux n existe : les variables viennent du bloc environment:
+    # de docker-compose.yml.
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../../.env"),
+        extra="ignore",
+    )
 
     app_name: str = "EnerVision API"
     api_v1_prefix: str = "/api/v1"
