@@ -8,14 +8,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest --environment jsdom",
+    "test:run": "vitest run --environment jsdom",
+    "ci:test": "npm run build && npm run test:run"
   },
+  "vitest": { "setupFiles": ["tests/setup.ts"], "environment": "jsdom" },
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
@@ -25,6 +31,8 @@
     "jiti": "^2.6.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^0.34.3",
+    "jsdom": "^22.1.0"
   }
 }
