@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest'
 
-// dynamic import of the client after global test setup (tests/setup.ts provides sessionStorage)
-
-const { setAccessToken, getAccessToken } = await import('../src/api/client')
+// dynamic import of client inside beforeAll to avoid top-level await
+import { beforeAll } from 'vitest'
+let setAccessToken: any
+let getAccessToken: any
+beforeAll(async () => {
+  const mod = await import('../src/api/client')
+  setAccessToken = mod.setAccessToken
+  getAccessToken = mod.getAccessToken
+})
 
 describe('api client', () => {
   it('stores and retrieves the access token via sessionStorage', () => {
