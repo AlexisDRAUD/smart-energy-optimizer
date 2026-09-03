@@ -53,6 +53,62 @@ Puis :
 docker compose up
 ```
 
+Ce premier lancement est long, il construit les images. Ensuite il enchaine :
+
+1. `db` demarre. Le volume `db_data` est vide, PostgreSQL s'y installe.
+2. `migrate` attend que la base reponde, joue `alembic upgrade head`, insere les donnees de
+   demonstration, et **s'arrete**. C'est normal, c'est un job et pas un service.
+3. `api` demarre, parce que `migrate` s'est termine sans erreur.
+
+L'API repond sur `http://localhost:8080`. Les comptes de demonstration et leur mot de passe
+sont dans le `README.md`.
+
+Le collecteur et l'ETL sont deja ecrits dans `docker-compose.yml` mais commentes, parce que
+`app/collector/` et `app/etl/` sont encore vides. Quand leur code arrive, on retire les dieses :
+meme image que l'API, commande differente.
+
+## Au quotidien
+
+```bash
+docker compose up -d          # le matin, -d rend la main au terminal
+docker compose ps             # qui tourne
+docker compose logs -f api    # suivre les journaux d'un conteneur
+docker compose stop           # le soir, ou laisser tourner
+```
+
+**Le piege a connaitre.** `docker compose up` ne reconstruit pas l'image quand le code change,
+il reutilise celle qui existe deja. Apres avoir modifie du Python ou recupere du code :
+
+```bash
+docker compose up -d --build
+```
+
+Prendre l'habitude du `--build` fait gagner les demi-heures passees a chercher pourquoi une
+modification n'a aucun effet.
+
+**Ou vivent les donnees.** Dans le volume `db_data`, en dehors des conteneurs. C'est ce qui
+permet de detruire et recreer les conteneurs sans rien perdre.
+
+| Commande | Les donnees |
+|---|---|
+| `up`, `stop`, `restart` | intactes |
+| `down` | **intactes** |
+| `down -v` | **effacees** |
+
+Le `-v` est le seul destructeur. Tout le reste laisse la base tranquille.
+
+Pour inspecter la base ou diagnostiquer un probleme, voir `runbook.md`.
+
+## Apres avoir recupere du code
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+S'il y a une nouvelle migration, `migrate` la detecte et l'applique sur la base existante. Les
+donnees restent. **Pas besoin de `down -v`.**
+
 ## Quand le schema change
 
 Celui qui change le schema modifie un modele dans
@@ -70,11 +126,8 @@ presente comme une suppression suivie d'un ajout, et les valeurs sont perdues.
 
 La migration part dans la meme demande de fusion que le modele et que `docs/data-contract.md`.
 
-Les autres, apres avoir recupere la branche :
-
-```bash
-docker compose up --build
-```
+La demande de fusion dit dans sa description qu'elle ajoute une migration, pour que les autres
+sachent qu'ils doivent relancer `docker compose up -d --build` en la recuperant.
 
 `migrate` applique la nouvelle migration sur la base existante, sans la detruire. C'est toute
 la difference avec ce que faisait le projet avant : plus besoin de recreer la base a chaque
@@ -97,13 +150,29 @@ tout d'aplomb.
 
 ## Travailler sans Docker
 
-Les tests du backend et la generation de migrations tournent en local :
+Les tests du backend et la generation de migrations tournent en local, sans conteneur. Une
+seule installation a faire :
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e packages/features
 .venv/bin/pip install -r services/backend/requirements.txt
 ```
+
+Les tests ont besoin d'une base. Ils creent et detruisent la leur, `seo_test`, a cote de la
+base de travail. Il suffit donc que `db` tourne :
+
+```bash
+docker compose up -d db
+
+cd services/backend
+JWT_SECRET_KEY=test-only-secret-with-at-least-32-characters \
+TEST_DATABASE_URL=postgresql+psycopg://seo:<mot de passe>@127.0.0.1:5432/seo_test \
+  ../../.venv/bin/python -m pytest -q
+```
+
+Ils appliquent les migrations sur cette base neuve avant de tourner : une migration cassee est
+donc attrapee par la suite de tests, pas decouverte par un coequipier.
 
 ## Sur Azure
 
