@@ -11,29 +11,36 @@ Projet EnerVision, promotion EADL 2025, groupe 1.
 - Leve des alertes sur les depassements de seuil.
 - Propose des actions d'economie chiffrees en kWh.
 
-## Demarrer PostgreSQL
+## Demarrer l'environnement
 
 ```bash
 cp .env.example .env
-docker compose up -d db
-./scripts/verify-postgres-init.sh
+docker compose up
 ```
 
-PostgreSQL execute `db/migrations/001_schema.sql` uniquement lors de la creation
-d'un volume vide. Le script de verification confirme que les dix tables du
-schema de reference existent sans supprimer de donnees.
+C'est tout. Trois services demarrent dans cet ordre :
 
-Pour inserer les donnees mock dans les tables de demonstration :
+1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
+2. `migrate`, qui applique les migrations Alembic puis insere les donnees de
+   demonstration, et s'arrete.
+3. `api`, qui ne demarre que quand `migrate` s'est terminee sans erreur.
+
+`migrate` et `api` sont la meme image lancee avec deux commandes differentes. Le
+collecteur et l'ETL la rejoindront de la meme facon quand leur code arrivera.
+
+Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL
+n'est joue par l'image PostgreSQL, et personne ne cree de table a la main.
+
+Pour repartir d'une base vide :
 
 ```bash
-MOCK_DATA_CONFIRM=1 ./scripts/seed-mock-data.sh
+docker compose down -v && docker compose up
 ```
 
-Le seed remplace les donnees des sites mock `LYO-01`, `GRE-01` et `NAN-01`,
-puis ajoute 24 heures de mesures par minute, les etats des capteurs, la
-qualite, les predictions, une alerte et l'execution ETL mock. La confirmation
-explicite empeche son usage accidentel sur une base contenant des donnees
-reelles.
+Les donnees de demonstration couvrent 24 heures de mesures a la minute sur les trois
+sites `LYO-01`, `GRE-01` et `NAN-01`, plus les etats des capteurs, la qualite, une
+alerte et une execution ETL. Le seed est rejouable : il ne fait rien si les sites
+existent deja. Pour demarrer sans lui, mettre `SEED_DEMO_DATA=0` dans le `.env`.
 
 Le seed cree egalement les comptes suivants avec le mot de passe
 `EnerVisionDemo2026!` :
