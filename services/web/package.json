@@ -7,17 +7,25 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --environment jsdom",
+    "test:run": "vitest run --environment jsdom",
+    "ci:test": "npm run build && npm run test:run"
   },
+  "vitest": { "setupFiles": ["tests/setup.ts"], "environment": "jsdom" },
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^14.0.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "typescript": "^5.9.3",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^0.34.3",
+    "jsdom": "^22.1.0"
   }
 }
