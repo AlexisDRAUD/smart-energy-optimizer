@@ -38,7 +38,11 @@ type(service): phrase courte a l'infinitif ou au present
 ```
 
 Types : `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `ci`.
-Services : `collector`, `etl`, `ml`, `api`, `web`, `common`, `infra`, `db`.
+Portees : `backend`, `ml`, `web`, `features`, `infra`, `db`, `docs`.
+
+`backend` couvre le collecteur, l'ETL et l'API, qui vivent dans la meme image. Quand un
+commit ne touche qu'un des trois, la phrase le dit : `feat(backend): ajouter la boucle du
+collecteur`.
 
 Chacun pousse ses propres commits. Personne ne pousse le code d'un autre sous son nom,
 l'historique sert de preuve de contribution individuelle.
@@ -48,8 +52,10 @@ l'historique sert de preuve de contribution individuelle.
 - La branche principale est protegee, aucun envoi direct.
 - Une approbation minimum.
 - La chaine d'integration doit etre au vert (des qu'elle existe).
-- Une demande de fusion qui touche un contrat partage (schemas de l'API, paquet commun,
-  migrations) previent explicitement les personnes concernees.
+- Une demande de fusion qui touche un contrat partage (schemas de l'API, `packages/features`,
+  migrations, modeles de `app/db/`) previent explicitement les personnes concernees.
+- Une demande de fusion qui ajoute une migration le dit dans sa description : les autres
+  devront relancer `docker compose up` apres l'avoir recuperee.
 
 ### Cycle de vie
 
