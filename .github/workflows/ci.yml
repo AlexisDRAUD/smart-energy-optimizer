@@ -8,6 +8,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
 
 jobs:
   # Job de base : style et qualite du code sur tout le depot.
@@ -70,3 +71,26 @@ jobs:
         with:
           name: backend-coverage
           path: services/backend/coverage.xml
+
+  # Job Web : qualite, typage et build du front React (services/web).
+  # Pas de suite de tests pour l'instant : lint + typecheck + build de production.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/web/package-lock.json
+      - name: Installer les dependances
+        run: npm ci
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+      - name: Build de production
+        run: npm run build
