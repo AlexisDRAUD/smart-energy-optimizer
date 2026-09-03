@@ -187,7 +187,7 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 
 ```bash
 # Lancer les tests unitaires sans PostgreSQL
-.venv/bin/python -m pytest tests/test_etl_transform.py
+.venv/bin/python -m pytest tests/test_etl_transform.py tests/test_database_safety.py
 
 # Créer et appliquer une migration après modification des modèles
 .venv/bin/python -m alembic revision --autogenerate -m "description du changement"
@@ -198,7 +198,7 @@ docker compose run --rm etl
 
 # Lancer le test d'integration PostgreSQL dans Docker (base seo_test isolee)
 docker compose run --rm \
-  -e "TEST_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/seo_test" \
+  -e TEST_DATABASE_URL="${DATABASE_URL%/*}/seo_test" \
   etl pytest tests/test_etl_postgres.py -v
 ```
 
@@ -217,7 +217,8 @@ qui reste seul responsable du schéma Alembic.
 Le test PostgreSQL ne possède aucune URL locale par défaut : sans
 `TEST_DATABASE_URL`, il est immédiatement ignoré. La base de test indiquée est
 recréée puis supprimée par la suite de tests ; elle doit donc être distincte de la
-base de développement.
+base de développement. Par sécurité, son nom doit finir par `_test` et la suite
+refuse de démarrer si elle désigne la même base que `DATABASE_URL`.
 
 Depuis la racine du dépôt :
 

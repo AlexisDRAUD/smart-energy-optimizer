@@ -8,18 +8,18 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from psycopg import sql
-from sqlalchemy.engine import make_url
+
+from tests.database_safety import validate_test_database_url
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+APPLICATION_DATABASE_URL = os.environ.get("DATABASE_URL")
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 test_database_url = (
-    make_url(TEST_DATABASE_URL).update_query_dict({"connect_timeout": "3"})
+    validate_test_database_url(TEST_DATABASE_URL, APPLICATION_DATABASE_URL)
     if TEST_DATABASE_URL
     else None
 )
 if test_database_url is not None:
-    if test_database_url.get_backend_name() != "postgresql" or not test_database_url.database:
-        raise RuntimeError("TEST_DATABASE_URL must point to a PostgreSQL database.")
     os.environ["DATABASE_URL"] = test_database_url.render_as_string(hide_password=False)
 else:
     # Some database-backed test modules import the shared engine during collection.
