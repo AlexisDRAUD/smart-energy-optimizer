@@ -18,15 +18,16 @@ cp .env.example .env
 docker compose up
 ```
 
-C'est tout. Trois services demarrent dans cet ordre :
+C'est tout. Les services demarrent dans cet ordre :
 
 1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
 2. `migrate`, qui applique les migrations Alembic puis insere les donnees de
    demonstration, et s'arrete.
-3. `api`, qui ne demarre que quand `migrate` s'est terminee sans erreur.
+3. `api` et l'ETL ponctuel, qui attendent que `migrate` se termine sans erreur.
+4. `web`, qui attend que l'API soit saine.
 
-`migrate` et `api` sont la meme image lancee avec deux commandes differentes. Le
-collecteur et l'ETL la rejoindront de la meme facon quand leur code arrivera.
+`migrate`, `api` et `etl` utilisent la meme image backend avec des commandes
+différentes. L'ETL peut être relancé à la demande avec `docker compose run --rm etl`.
 
 Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL
 n'est joue par l'image PostgreSQL, et personne ne cree de table a la main.

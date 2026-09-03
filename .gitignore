@@ -30,6 +30,10 @@ models/*.joblib
 # Donnees locales
 data/
 *.csv
+<<<<<<< HEAD
+*.db
+=======
+>>>>>>> dev
 !docs/**/*.csv
 
 # Outils
