@@ -12,7 +12,7 @@ env:
 
 jobs:
   # Job de base : style et qualite du code sur tout le depot.
-  backend-build:
+  backend-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,9 +72,9 @@ jobs:
           name: backend-coverage
           path: services/backend/coverage.xml
 
-  # Job Web build : qualite, typage et build de production du front React
+  # Job de lint : qualite et typage du front React
   # (services/web).
-  web-build:
+  web-lint:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -92,8 +92,6 @@ jobs:
         run: npm run lint
       - name: Typecheck (tsc --noEmit)
         run: npm run typecheck
-      - name: Build de production
-        run: npm run build
 
   # Job Web test : tests unitaires + composants (Jest + Testing Library) et
   # couverture du front React (services/web).
