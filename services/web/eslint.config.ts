@@ -11,4 +11,12 @@ export default defineConfig([
   pluginReact.configs.flat.recommended,
   pluginReact.configs.flat["jsx-runtime"],
   { settings: { react: { version: "detect" } } },
+  {
+    files: ["tests/**/*.{ts,tsx}", "src/**/*.{test,spec}.{ts,tsx}"],
+    languageOptions: { globals: { ...globals.jest, ...globals.node } },
+  },
+  {
+    files: ["**/*.{cjs,cts}", "*.config.{js,ts}"],
+    languageOptions: { globals: globals.node },
+  },
 ]);
