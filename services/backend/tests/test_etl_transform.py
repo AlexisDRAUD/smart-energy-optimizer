@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from app.etl.transform import EnergyReading, transform_readings
@@ -96,15 +97,14 @@ def test_invalid_values_are_rejected(field: str, invalid_value: Any) -> None:
     assert result.rejected_count == 1
 
 
-def test_invalid_row_is_logged_without_stopping_other_rows(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_invalid_row_is_logged_without_stopping_other_rows() -> None:
     invalid_payload = valid_payload()
     invalid_payload["power_factor"] = 2
+    logger = Mock(spec=logging.Logger)
 
-    with caplog.at_level(logging.WARNING):
-        result = transform_readings([invalid_payload, valid_payload()])
+    result = transform_readings([invalid_payload, valid_payload()], logger=logger)
 
     assert len(result.readings) == 1
     assert result.rejected_count == 1
-    assert "Ligne 1 rejetée" in caplog.text
+    logger.warning.assert_called_once()
+    assert logger.warning.call_args.args[1] == 1
