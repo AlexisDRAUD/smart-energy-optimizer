@@ -1,9 +1,8 @@
 import os
 
 import pytest
-from sqlalchemy import text
-
 from collector.storage import PostgresStorage
+from sqlalchemy import text
 
 
 @pytest.fixture
