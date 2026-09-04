@@ -3,3 +3,4 @@ scikit-learn>=1.5
 mlflow>=2.16
 pandas>=2.2
 psycopg[binary]>=3.1
+SQLAlchemy>=2.0
