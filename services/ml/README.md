@@ -1,61 +1,40 @@
 # Service ML
 
-Entrainement, evaluation et publication du modele dans MLflow.
+Entrainement, evaluation et publication des modeles dans MLflow.
 
 ## Variables d'environnement
 
 - `DATABASE_URL` (obligatoire avec `--use-db`)
-- `MLFLOW_TRACKING_URI` (optionnel, recommande en CI/prod)
+- `MLFLOW_TRACKING_URI` (recommande)
 
-Exemple:
+## Entrainement
 
-```bash
-export DATABASE_URL="postgresql://user:password@db-host:5432/enervision"
-export MLFLOW_TRACKING_URI="http://mlflow-server:5000"
-```
-
-## Lancer l'entrainement
-
-Depuis PostgreSQL:
+Mode base PostgreSQL (`readings` + `sites`) :
 
 ```bash
-python services/ml/main.py --use-db --train-months 22 --holdout-months 2
+python services/ml/main.py --use-db --horizon-minutes 120
 ```
 
-Depuis CSV (compatibilite):
+Mode CSV (fallback local) :
 
 ```bash
 python services/ml/main.py --csv services/ml/donnees.csv
 ```
 
-Le modele est enregistre dans le Model Registry MLflow sous:
+Le script entraine **un modele par site** et enregistre chaque modele sous :
 
-- `EnerVision_RF_Predictor` (nom registre)
+- `EnerVision_RF_Predictor_<SITE_ID>`
 
-## Exposer le modele
+Puis il met a jour l'alias de registre `production` (option desactivable avec
+`--no-production-alias`).
 
-### Option A: MLflow serve (MVP rapide)
+## Exposition en production
 
-```bash
-export MLFLOW_TRACKING_URI="http://mlflow-server:5000"
-mlflow models serve -m "models:/EnerVision_RF_Predictor/latest" -p 5001 --host 0.0.0.0
-```
+Le service de prediction est dans `services/backend` (pas de serveur separe dans
+`services/ml`).
 
-### Option B: FastAPI (integration applicative)
+## Automatisation
 
-Un exemple minimal est disponible dans `services/ml/predict_api.py`.
-
-Lancement:
-
-```bash
-pip install fastapi uvicorn
-uvicorn services.ml.predict_api:app --host 0.0.0.0 --port 8000
-```
-
-## Automatisation cron (VM)
-
-Exemple crontab:
-
-```cron
-0 2 * * * /chemin/vers/venv/bin/python /chemin/vers/repo/services/ml/main.py --use-db --train-months 22 --holdout-months 2 >> /var/log/enervision/train.log 2>&1
-```
+- GitHub Actions `train.yml` : execution manuelle sur runner `self-hosted` ayant
+  acces reseau a la base.
+- Cron VM : possible via crontab sur la machine qui heberge la base/MLflow.

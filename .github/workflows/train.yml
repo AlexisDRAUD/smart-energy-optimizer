@@ -1,13 +1,13 @@
 name: Scheduled ML training
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
   workflow_dispatch:
 
 jobs:
   train:
-    runs-on: ubuntu-latest
+    # Le runner doit pouvoir joindre la base PostgreSQL de l'ecole.
+    # Utiliser un runner self-hosted sur le meme reseau.
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: services/ml
@@ -25,6 +25,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          pip install ../../packages/features
           pip install -r requirements.txt
 
       - name: Run training
