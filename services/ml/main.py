@@ -120,7 +120,6 @@ def load_from_db() -> pd.DataFrame:
         FROM readings r
         LEFT JOIN sites s ON s.site_id = r.site_id
         WHERE r.consumption_kwh IS NOT NULL
-        ORDER BY r.site_id, r.measured_at
     """
     frame = pd.read_sql(query, engine)
     return _sanitize_source(frame)
