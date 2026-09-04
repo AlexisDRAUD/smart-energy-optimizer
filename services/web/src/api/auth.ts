@@ -1,5 +1,5 @@
 import { apiRequest, refreshSession, setAccessToken } from './client'
-import type { ApiToken } from '../types/api'
+import type { ApiIdentity, ApiToken } from '../types/api'
 
 export async function login(email: string, password: string) {
     const token = await apiRequest<ApiToken>('/api/v1/auth/login', {
@@ -21,6 +21,11 @@ export async function login(email: string, password: string) {
  */
 export function restoreSession() {
     return refreshSession()
+}
+
+/** Compte connecté, tel que l'API le voit. */
+export function getCurrentUser() {
+    return apiRequest<ApiIdentity>('/api/v1/auth/me')
 }
 
 export async function logout() {

@@ -1,46 +1,128 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getReadings } from '../api/readings'
+import { useCallback, useEffect, useState } from 'react'
+import { getQuality, getSensorStatus } from '../api/dashboard'
+import { DataTable, type Column } from '../components/common/DataTable'
+import { MetricCard } from '../components/common/MetricCard'
 import { PageFeedback } from '../components/common/PageFeedback'
-import { useSites } from '../hooks/useSites'
-import type { ApiReading } from '../types/api'
-import { formatDateTime, formatEnergy, formatQuality } from '../utils/formatters'
+import { DashboardFilters } from '../components/dashboard/DashboardFilters'
+import { periodStart } from '../data/periods'
+import { useFilters } from '../hooks/useFilters'
+import type { ApiQuality, ApiQualityPoint, ApiSensorSite } from '../types/api'
+import { formatDateTime, formatDay, formatPercent } from '../utils/formatters'
+
+const sensorLabels = {
+    consumption: 'Consommation',
+    electrical: 'Électrique',
+    temperature: 'Température',
+    humidity: 'Humidité',
+    network: 'Réseau',
+}
+
+const columns: Column<ApiQualityPoint>[] = [
+    { header: 'Jour', cell: (point) => formatDay(point.day) },
+    { header: 'Attendus', cell: (point) => point.expected_points },
+    { header: 'Reçus', cell: (point) => point.received_points },
+    { header: 'Manquants', cell: (point) => point.missing_points },
+    { header: 'Nuls', cell: (point) => point.null_points },
+    { header: 'Imputés', cell: (point) => point.imputed_points },
+    { header: 'Calculé le', cell: (point) => formatDateTime(point.computed_at) },
+]
+
+/** Somme d'une colonne sur toute la période. */
+function sum(points: ApiQualityPoint[], field: keyof ApiQualityPoint) {
+    return points.reduce((total, point) => total + Number(point[field]), 0)
+}
 
 export function DataQualityPage() {
-    const { sites, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useSites()
-    const [readings, setReadings] = useState<ApiReading[]>([])
+    const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
+    const [quality, setQuality] = useState<ApiQuality | null>(null)
+    const [sensors, setSensors] = useState<ApiSensorSite | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
+    const [isLoading, setIsLoading] = useState(false)
 
     const load = useCallback(async () => {
+        if (siteId === null) return
         setIsLoading(true)
         setError(null)
         try {
-            const readingsBySite = await Promise.all(sites.map((site) => getReadings({ siteId: site.id })))
-            setReadings(readingsBySite.flat())
+            const [qualityData, sensorSites] = await Promise.all([
+                getQuality(siteId, periodStart(period)),
+                getSensorStatus(siteId),
+            ])
+            setQuality(qualityData)
+            setSensors(sensorSites[0] ?? null)
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'Impossible de charger la qualité des données.')
         } finally {
             setIsLoading(false)
         }
-    }, [sites])
+    }, [period, siteId])
 
     useEffect(() => {
         void load()
     }, [load])
 
-    const qualityCounts = useMemo(() => {
-        const counts: Partial<Record<ApiReading['data_quality'], number>> = {}
-        readings.forEach((reading) => {
-            counts[reading.data_quality] = (counts[reading.data_quality] ?? 0) + 1
-        })
-        return counts
-    }, [readings])
+    const points = quality?.points ?? []
+    const expected = sum(points, 'expected_points')
+    const received = sum(points, 'received_points')
+    const completeness = expected ? received / expected * 100 : null
 
     return (
         <>
-            <PageFeedback isLoading={sitesLoading || isLoading} error={sitesError ?? error} onRetry={() => { void reloadSites(); void load() }} />
-            <section className="quality-summary-grid"><article className="metric-card"><p><span className="metric-dot green" /> Données bonnes</p><strong>{qualityCounts.good ?? 0}</strong><small>Relevés de qualité optimale</small></article><article className="metric-card"><p><span className="metric-dot orange" /> Données à contrôler</p><strong>{(qualityCounts.partial ?? 0) + (qualityCounts.degraded ?? 0)}</strong><small>Relevés partiels ou dégradés</small></article><article className="metric-card"><p><span className="metric-dot red" /> Données critiques</p><strong>{qualityCounts.critical ?? 0}</strong><small>Intervention requise</small></article></section>
-            <article className="history-table-card"><div className="sites-heading"><div><h2>Qualité des relevés</h2><p>Les valeurs brutes nulles sont conservées et identifiées avec leur cause.</p></div><span>{readings.length} relevés</span></div><div className="table-scroll"><table><thead><tr><th>Date</th><th>Site</th><th>Valeur brute</th><th>Valeur imputée</th><th>Qualité</th><th>Motif de donnée nulle</th></tr></thead><tbody>{readings.map((reading) => <tr key={reading.id}><td>{formatDateTime(reading.recorded_at)}</td><td>#{reading.site_id}</td><td>{formatEnergy(reading.consumption_kwh_raw)}</td><td>{formatEnergy(reading.consumption_kwh_imputed)}</td><td>{formatQuality(reading.data_quality)}</td><td>{reading.null_reasons?.join(', ') ?? '—'}</td></tr>)}</tbody></table></div></article>
+            <DashboardFilters
+                sites={sites}
+                siteId={siteId}
+                onSiteChange={setSiteId}
+                onRefresh={load}
+                period={period}
+                onPeriodChange={setPeriod}
+            />
+            <PageFeedback
+                isLoading={sitesLoading || isLoading}
+                error={sitesError ?? error}
+                onRetry={() => { void reloadSites(); void load() }}
+            />
+
+            <section className="card-grid">
+                <MetricCard label="Complétude" value={formatPercent(completeness)} hint={`${received} relevés reçus sur ${expected} attendus`} dot="green" />
+                <MetricCard label="Relevés manquants" value={sum(points, 'missing_points')} dot="red" />
+                <MetricCard label="Valeurs nulles" value={sum(points, 'null_points')} dot="orange" />
+                <MetricCard label="Valeurs imputées" value={sum(points, 'imputed_points')} dot="teal" />
+            </section>
+
+            <article className="table-card">
+                <div className="card-heading">
+                    <div>
+                        <h2>État des capteurs</h2>
+                    </div>
+                    <span>{sensors ? (sensors.overall === 'ok' ? 'Tous opérationnels' : 'Au moins un capteur en défaut') : '—'}</span>
+                </div>
+                {sensors
+                    ? (
+                        <div className="sensor-grid">
+                            {sensors.sensors.map((sensor) => (
+                                <div className="sensor-item" key={sensor.sensor}>
+                                    <span className={`metric-dot ${sensor.status === 'ok' ? 'green' : 'red'}`} />
+                                    <div>
+                                        <strong>{sensorLabels[sensor.sensor]}</strong>
+                                        <p>{sensor.status === 'ok' ? 'Opérationnel' : 'En défaut'}</p>
+                                        <small>{formatDateTime(sensor.observed_at)}</small>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                    : <p className="empty-state">Aucune information capteur pour ce site.</p>}
+            </article>
+
+            <article className="table-card">
+                <div className="card-heading">
+                    <div>
+                        <h2>Complétude jour par jour</h2>
+                    </div>
+                    <span>{points.length} jour{points.length > 1 ? 's' : ''}</span>
+                </div>
+                <DataTable columns={columns} rows={points} rowKey={(point) => point.day} emptyLabel="Aucune donnée de qualité sur la période." />
+            </article>
         </>
     )
 }

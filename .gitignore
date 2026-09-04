@@ -28,9 +28,8 @@ models/*.pkl
 models/*.joblib
 
 # Donnees locales
-data/
+/data/
 *.csv
-*.db
 !docs/**/*.csv
 
 # Outils
