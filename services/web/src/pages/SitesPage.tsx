@@ -1,34 +1,61 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getCurrentReading } from '../api/sites'
+import { getOverview } from '../api/dashboard'
+import { DataTable, type Column } from '../components/common/DataTable'
 import { PageFeedback } from '../components/common/PageFeedback'
 import { useSites } from '../hooks/useSites'
-import type { ApiReading } from '../types/api'
-import { formatDateTime, formatEnergy, formatQuality, getReadingValue } from '../utils/formatters'
+import type { ApiOverview, ApiSite } from '../types/api'
+import { formatDateTime, formatPercent, formatPower } from '../utils/formatters'
 
 export function SitesPage() {
     const { sites, error, isLoading, reload } = useSites()
-    const [readings, setReadings] = useState<Map<string, ApiReading>>(new Map())
-    const [readingsError, setReadingsError] = useState<string | null>(null)
+    const [overview, setOverview] = useState<ApiOverview | null>(null)
+    const [overviewError, setOverviewError] = useState<string | null>(null)
 
-    const loadCurrentReadings = useCallback(async () => {
-        if (!sites.length) return
-        setReadingsError(null)
+    // Un seul appel donne la consommation de tous les sites, au lieu d'un
+    // appel /latest par site.
+    const loadOverview = useCallback(async () => {
+        setOverviewError(null)
         try {
-            const currentReadings = await Promise.all(sites.map(async (site) => [site.id, await getCurrentReading(site.id)] as const))
-            setReadings(new Map(currentReadings))
+            setOverview(await getOverview())
         } catch (cause) {
-            setReadingsError(cause instanceof Error ? cause.message : 'Impossible de charger les derniers relevés.')
+            setOverviewError(cause instanceof Error ? cause.message : 'Impossible de charger les consommations.')
         }
-    }, [sites])
+    }, [])
 
     useEffect(() => {
-        void loadCurrentReadings()
-    }, [loadCurrentReadings])
+        void loadOverview()
+    }, [loadOverview])
+
+    const measureOf = (siteId: string) => overview?.by_site.find((row) => row.site_id === siteId)
+
+    const columns: Column<ApiSite>[] = [
+        { header: 'Site', cell: (site) => site.site_name },
+        { header: 'Identifiant', cell: (site) => site.site_id },
+        { header: 'Type', cell: (site) => site.site_type },
+        { header: 'Localisation', cell: (site) => site.location },
+        { header: 'Puissance souscrite', cell: (site) => formatPower(site.capacity_kw) },
+        { header: 'État', cell: (site) => (site.status === 'active' ? 'Actif' : 'Inactif') },
+        { header: 'Consommation', cell: (site) => formatPower(measureOf(site.site_id)?.consumption_kw) },
+        { header: 'Taux de charge', cell: (site) => formatPercent(measureOf(site.site_id)?.load_rate_percent) },
+        { header: 'Dernière donnée', cell: (site) => formatDateTime(site.last_seen_at) },
+    ]
 
     return (
         <>
-            <PageFeedback isLoading={isLoading} error={error ?? readingsError} onRetry={() => { void reload(); void loadCurrentReadings() }} />
-            <section className="sites-card sites-page-card"><div className="sites-heading"><div><h2>Sites connectés</h2><p>Informations et dernier relevé remontés par l’API.</p></div><span>{sites.length} site{sites.length > 1 ? 's' : ''}</span></div><div className="table-scroll"><table><thead><tr><th>Site</th><th>Code</th><th>Localisation</th><th>Puissance souscrite</th><th>Dernière consommation</th><th>Qualité</th><th>Dernière donnée</th></tr></thead><tbody>{sites.map((site) => { const reading = readings.get(site.id); return <tr key={site.id}><td>{site.name}</td><td>{site.code}</td><td>{site.city}, {site.country}</td><td>{site.subscribed_power_kw} kW</td><td>{formatEnergy(reading ? getReadingValue(reading) : null)}</td><td>{reading ? formatQuality(reading.data_quality) : '—'}</td><td>{reading ? formatDateTime(reading.recorded_at) : '—'}</td></tr> })}</tbody></table></div></section>
+            <PageFeedback
+                isLoading={isLoading}
+                error={error ?? overviewError}
+                onRetry={() => { void reload(); void loadOverview() }}
+            />
+            <article className="table-card">
+                <div className="card-heading">
+                    <div>
+                        <h2>Sites connectés</h2>
+                    </div>
+                    <span>{sites.length} site{sites.length > 1 ? 's' : ''}</span>
+                </div>
+                <DataTable columns={columns} rows={sites} rowKey={(site) => site.site_id} emptyLabel="Aucun site connecté." />
+            </article>
         </>
     )
 }
