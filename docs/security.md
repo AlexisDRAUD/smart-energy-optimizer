@@ -29,7 +29,16 @@ une fois reste dans l'historique meme apres avoir été retire du fichier.
 - Roles au moindre privilege dans la base. Le role qui écrit le brut n'a ni `UPDATE` ni
   `DELETE`. Le role qui lit pour l'API n'écrit pas.
 - Mots de passe haches par une bibliothèque standard. Aucune cryptographie écrite a la main.
-- Jetons signes a durée de vie courte.
+- Jetons signes a durée de vie courte : une heure pour l'access token présenté a chaque
+  appel, sept jours pour le refresh token qui ne sert qu'a le renouveler.
+- Le refresh token vit dans un cookie `httpOnly`, hors de portée du JavaScript, limité au
+  chemin `/api/v1/auth` et marqué `Secure` en production (`COOKIE_SECURE=true`). Un XSS sur
+  le dashboard ne permet donc pas de prolonger une session au dela de l'heure en cours.
+- Les deux jetons portent un champ `typ`. Un refresh token présenté en `Authorization` est
+  refusé : sans cette vérification il ouvrirait un accès de sept jours.
+- Reste a faire : la révocation. `logout` efface le cookie du navigateur, mais un refresh
+  token copié ailleurs reste valable jusqu'a son expiration. Il faudrait une table de
+  sessions en base pour le couper vraiment.
 - Dépendances figées par version.
 - Analyse des images et des dépendances dans la chaine d'intégration, résultats traités et
   non ignorés.
