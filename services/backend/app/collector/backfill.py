@@ -17,7 +17,7 @@ from app.collector.config import database_url, source_api_url
 from app.collector.storage import PostgresStorage
 
 PROFONDEUR_JOURS = 730
-FENETRE_MINUTES = 1000   # 1000 points sur 1000 minutes = 1 point/minute
+FENETRE_MINUTES = 1000  # 1000 points sur 1000 minutes = 1 point/minute
 LIMIT = 1000
 
 
