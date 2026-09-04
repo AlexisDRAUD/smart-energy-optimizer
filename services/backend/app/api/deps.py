@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.security import ACCESS_TYPE, decode_token
 from app.crud.user import get_user_by_email
 from app.db.models.user import User
 from app.db.session import get_db
@@ -21,7 +22,7 @@ def get_current_user(db: DbSession, token: Annotated[str, Depends(oauth2_scheme)
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = decode_token(token, ACCESS_TYPE)
         email = payload.get("sub")
     except jwt.InvalidTokenError as error:
         raise credentials_exception from error

@@ -25,7 +25,11 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 15
+    access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 7
+    # Le cookie de session n est envoye qu en HTTPS quand ce reglage est actif.
+    # False en local (http://localhost), True derriere le domaine de production.
+    cookie_secure: bool = False
 
     seed_user_password: str
 
