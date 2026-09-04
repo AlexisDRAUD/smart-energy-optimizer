@@ -161,7 +161,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./services/web
-          file: Dockerfile
           push: true
           tags: |
             ghcr.io/alexisdraud/smart-energy-optimizer-web:dev
