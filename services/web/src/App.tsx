@@ -22,7 +22,7 @@ function HeaderBrand() {
 }
 
 function App() {
-    const { isAuthenticated, logout: logoutSession } = useAuth()
+    const { status, isAuthenticated, logout: logoutSession } = useAuth()
     const route = useRouter()
     const lastUpdated = 'en direct'
     const [theme, setTheme] = useState<Theme>('light')
@@ -37,7 +37,7 @@ function App() {
         window.location.hash = '/'
     }
     const logout = () => {
-        logoutSession()
+        void logoutSession()
         closeSettings()
     }
 
@@ -52,6 +52,9 @@ function App() {
     }
     const page = pages[displayedRoute.id] ?? <PlaceholderPage title={displayedRoute.label} description={displayedRoute.subtitle} />
 
+    // Une reprise de session est en cours : afficher la page de connexion
+    // maintenant la ferait clignoter pour rien.
+    if (status === 'checking') return <main className="session-check" role="status">Vérification de la session…</main>
     if (!isAuthenticated) return <LoginPage />
 
     return (
