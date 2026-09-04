@@ -237,6 +237,18 @@ Le chargeur copie uniquement `consumption_kwh` dans `consumption_kwh_raw` et
 champs électriques absents de la table `readings`. Cette version ne lit encore ni
 l'API mock, ni `raw_readings`, et ne lance aucun traitement ML ou planificateur.
 
+### Analyse expérimentale de l'imputation
+
+`app/analysis/imputation_backtest.py` compare hors production le report et
+l'interpolation linéaire. Ses seuils provisoires et configurables sont
+`minimum_points=100` et `improvement_threshold=0.10` ; aucune classification de
+site n'est préétablie et un échantillon insuffisant produit `unknown`. L'analyse
+ne déclenche aucune imputation et n'écrit pas en base.
+
+Elle attend la valeur normalisée `consumption_kwh_raw`. Le CSV source fournit
+`consumption_kwh` : un adaptateur doit donc la mapper explicitement vers
+`consumption_kwh_raw` avant l'analyse.
+
 ## 9. Utiliser l'API
 
 ### Adresse et documentation interactive
