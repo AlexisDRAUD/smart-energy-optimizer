@@ -241,9 +241,13 @@ l'API mock, ni `raw_readings`, et ne lance aucun traitement ML ou planificateur.
 
 `app/analysis/imputation_backtest.py` compare hors production le report et
 l'interpolation linéaire. Ses seuils provisoires et configurables sont
-`minimum_points=100` et `improvement_threshold=0.10` ; aucune classification de
-site n'est préétablie et un échantillon insuffisant produit `unknown`. L'analyse
-ne déclenche aucune imputation et n'écrit pas en base.
+`minimum_points=100`, `minimum_method_improvement=0.10`,
+`maximum_normalized_error=0.10` et `maximum_gap_minutes=3` ; aucune
+classification de site n'est préétablie et un échantillon insuffisant produit
+`unknown`. L'analyse ne déclenche aucune imputation et n'écrit pas en base.
+
+La décision et ses règles de traçabilité sont consignées dans
+[l'ADR sur la stratégie d'imputation](../../docs/adr/ADR-2026-09-04-strategie-imputation-consommation.md).
 
 Elle attend la valeur normalisée `consumption_kwh_raw`. Le CSV source fournit
 `consumption_kwh` : un adaptateur doit donc la mapper explicitement vers

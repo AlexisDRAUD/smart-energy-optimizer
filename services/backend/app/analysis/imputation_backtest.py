@@ -14,24 +14,29 @@ from math import isfinite
 from typing import Literal, cast
 
 NETWORK_LOSS_REASON = "network_loss"
-MAX_MASKED_SEQUENCE_LENGTH = 3
 
 ImputationProfile = Literal["stable", "variable", "unknown"]
 
 
 @dataclass(frozen=True)
 class BacktestConfig:
-    """Provisional thresholds to validate with the Data team."""
+    """Provisional and configurable decision thresholds."""
 
     minimum_points: int = 100
-    improvement_threshold: float = 0.10
+    minimum_method_improvement: float = 0.10
+    maximum_normalized_error: float = 0.10
+    maximum_gap_minutes: int = 3
     interval: timedelta = timedelta(minutes=1)
 
     def __post_init__(self) -> None:
         if self.minimum_points < 1:
             raise ValueError("minimum_points must be positive")
-        if not 0 <= self.improvement_threshold <= 1:
-            raise ValueError("improvement_threshold must be between 0 and 1")
+        if not 0 <= self.minimum_method_improvement <= 1:
+            raise ValueError("minimum_method_improvement must be between 0 and 1")
+        if not 0 <= self.maximum_normalized_error <= 1:
+            raise ValueError("maximum_normalized_error must be between 0 and 1")
+        if self.maximum_gap_minutes < 1:
+            raise ValueError("maximum_gap_minutes must be positive")
         if self.interval <= timedelta(0):
             raise ValueError("interval must be positive")
 
@@ -48,51 +53,19 @@ class ConsumptionObservation:
 
 @dataclass(frozen=True)
 class SiteImputationBacktest:
-    """MAE comparison for one site."""
+    """MAE comparison and experimental decision trace for one site."""
 
     site_id: str
     sample_count: int
+    sequence_count: int
+    max_observed_consumption: float | None
     mae_linear: float | None
     mae_report: float | None
-    relative_improvement: float | None
+    normalized_mae_linear_pct: float | None
+    normalized_mae_report_pct: float | None
+    relative_improvement_pct: float | None
     profile: ImputationProfile
-    sequence_count: int
-
-
-def _contiguous_runs(
-    observations: Sequence[ConsumptionObservation], interval: timedelta
-) -> Iterator[list[ConsumptionObservation]]:
-    current_run: list[ConsumptionObservation] = []
-    for observation in observations:
-        if current_run and observation.measured_at - current_run[-1].measured_at != interval:
-            if current_run:
-                yield current_run
-            current_run = []
-        current_run.append(observation)
-    if current_run:
-        yield current_run
-
-
-def _masked_sequences(
-    run: Sequence[ConsumptionObservation],
-) -> Iterator[
-    tuple[ConsumptionObservation, Sequence[ConsumptionObservation], ConsumptionObservation]
-]:
-    start = 1
-    requested_length = 1
-    while start < len(run) - 1:
-        available_length = len(run) - start - 1
-        sequence_length = min(
-            requested_length,
-            MAX_MASKED_SEQUENCE_LENGTH,
-            available_length,
-        )
-        if sequence_length < 1:
-            return
-        end = start + sequence_length
-        yield run[start - 1], run[start:end], run[end]
-        start = end + 1
-        requested_length = requested_length % MAX_MASKED_SEQUENCE_LENGTH + 1
+    decision_reason: str
 
 
 def _is_real_observation(observation: ConsumptionObservation) -> bool:
@@ -104,21 +77,71 @@ def _is_real_observation(observation: ConsumptionObservation) -> bool:
     )
 
 
-def _classify(
-    mae_report: float,
-    mae_linear: float,
-    sample_count: int,
-    config: BacktestConfig,
-) -> tuple[ImputationProfile, float | None]:
-    if sample_count < config.minimum_points:
-        return "unknown", None
-    if mae_report == 0:
-        return "stable", None
+def _contiguous_runs(
+    observations: Sequence[ConsumptionObservation], interval: timedelta
+) -> Iterator[list[ConsumptionObservation]]:
+    """Yield real observations separated by invalid values or cadence breaks."""
+    current_run: list[ConsumptionObservation] = []
+    for observation in observations:
+        is_expected_next = (
+            not current_run or observation.measured_at - current_run[-1].measured_at == interval
+        )
+        if not _is_real_observation(observation) or not is_expected_next:
+            if current_run:
+                yield current_run
+            current_run = []
+            if not _is_real_observation(observation):
+                continue
+        current_run.append(observation)
+    if current_run:
+        yield current_run
 
-    improvement = (mae_report - mae_linear) / mae_report
-    if improvement >= config.improvement_threshold:
-        return "variable", improvement
-    return "stable", improvement
+
+def _masked_sequences(
+    run: Sequence[ConsumptionObservation], maximum_gap_minutes: int
+) -> Iterator[
+    tuple[ConsumptionObservation, Sequence[ConsumptionObservation], ConsumptionObservation]
+]:
+    """Yield every test window with real anchors around one to N masked points."""
+    for sequence_length in range(1, maximum_gap_minutes + 1):
+        for start in range(1, len(run) - sequence_length):
+            end = start + sequence_length
+            yield run[start - 1], run[start:end], run[end]
+
+
+def _percentage(numerator: float, denominator: float | None) -> float | None:
+    """Return a percentage while explicitly rejecting a zero or invalid denominator."""
+    if denominator is None or denominator <= 0 or not isfinite(denominator):
+        return None
+    if not isfinite(numerator):
+        return None
+    return numerator / denominator * 100
+
+
+def _classify(
+    *,
+    sample_count: int,
+    normalized_mae_linear_pct: float | None,
+    normalized_mae_report_pct: float | None,
+    relative_improvement_pct: float | None,
+    config: BacktestConfig,
+) -> tuple[ImputationProfile, str]:
+    if sample_count < config.minimum_points:
+        return "unknown", "insufficient_test_points"
+    if normalized_mae_linear_pct is None or normalized_mae_report_pct is None:
+        return "unknown", "invalid_normalization_denominator"
+
+    maximum_normalized_error_pct = config.maximum_normalized_error * 100
+    minimum_method_improvement_pct = config.minimum_method_improvement * 100
+    if (
+        relative_improvement_pct is not None
+        and relative_improvement_pct >= minimum_method_improvement_pct
+        and normalized_mae_linear_pct <= maximum_normalized_error_pct
+    ):
+        return "variable", "linear_improvement_and_error_within_thresholds"
+    if normalized_mae_report_pct <= maximum_normalized_error_pct:
+        return "stable", "report_error_within_threshold"
+    return "unknown", "candidate_method_error_above_threshold"
 
 
 def compare_imputation_methods(
@@ -133,16 +156,24 @@ def compare_imputation_methods(
 
     results: list[SiteImputationBacktest] = []
     for site_id, site_observations in sorted(observations_by_site.items()):
-        real_observations = sorted(
-            filter(_is_real_observation, site_observations),
+        sorted_observations = sorted(
+            site_observations,
             key=lambda observation: observation.measured_at,
         )
+        real_values = [
+            cast(float, observation.consumption_kwh_raw)
+            for observation in sorted_observations
+            if _is_real_observation(observation)
+        ]
+        max_observed_consumption = max(real_values, default=None)
         report_absolute_errors: list[float] = []
         interpolation_absolute_errors: list[float] = []
         sequence_count = 0
 
-        for run in _contiguous_runs(real_observations, active_config.interval):
-            for previous, masked, following in _masked_sequences(run):
+        for run in _contiguous_runs(sorted_observations, active_config.interval):
+            for previous, masked, following in _masked_sequences(
+                run, active_config.maximum_gap_minutes
+            ):
                 sequence_count += 1
                 previous_value = cast(float, previous.consumption_kwh_raw)
                 following_value = cast(float, following.consumption_kwh_raw)
@@ -159,27 +190,42 @@ def compare_imputation_methods(
         if sample_count:
             mae_report = sum(report_absolute_errors) / sample_count
             mae_linear = sum(interpolation_absolute_errors) / sample_count
-            profile, improvement = _classify(
-                mae_report,
-                mae_linear,
-                sample_count,
-                active_config,
-            )
         else:
             mae_report = None
             mae_linear = None
-            profile = "unknown"
-            improvement = None
+
+        normalized_mae_linear_pct = (
+            _percentage(mae_linear, max_observed_consumption) if mae_linear is not None else None
+        )
+        normalized_mae_report_pct = (
+            _percentage(mae_report, max_observed_consumption) if mae_report is not None else None
+        )
+        relative_improvement_pct = (
+            _percentage(mae_report - mae_linear, mae_report)
+            if mae_report is not None and mae_linear is not None
+            else None
+        )
+        profile, decision_reason = _classify(
+            sample_count=sample_count,
+            normalized_mae_linear_pct=normalized_mae_linear_pct,
+            normalized_mae_report_pct=normalized_mae_report_pct,
+            relative_improvement_pct=relative_improvement_pct,
+            config=active_config,
+        )
 
         results.append(
             SiteImputationBacktest(
                 site_id=site_id,
                 sample_count=sample_count,
+                sequence_count=sequence_count,
+                max_observed_consumption=max_observed_consumption,
                 mae_linear=mae_linear,
                 mae_report=mae_report,
-                relative_improvement=improvement,
+                normalized_mae_linear_pct=normalized_mae_linear_pct,
+                normalized_mae_report_pct=normalized_mae_report_pct,
+                relative_improvement_pct=relative_improvement_pct,
                 profile=profile,
-                sequence_count=sequence_count,
+                decision_reason=decision_reason,
             )
         )
 
