@@ -147,7 +147,7 @@ def _sanitize_source(frame: pd.DataFrame) -> pd.DataFrame:
 def build_supervised_frame(source: pd.DataFrame, horizon_minutes: int) -> pd.DataFrame:
     featured = build_feature_frame(source)
     featured[TARGET_COLUMN] = featured.groupby("site_id")["consumption_kwh"].shift(-horizon_minutes)
-    return featured.dropna(subset=[TARGET_COLUMN]).reset_index(drop=True)
+    return featured.dropna(subset=["consumption_kwh", TARGET_COLUMN]).reset_index(drop=True)
 
 
 def temporal_split(
