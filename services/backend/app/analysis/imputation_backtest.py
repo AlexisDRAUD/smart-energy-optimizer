@@ -29,14 +29,14 @@ class BacktestConfig:
     interval: timedelta = timedelta(minutes=1)
 
     def __post_init__(self) -> None:
-        if self.minimum_points < 1:
-            raise ValueError("minimum_points must be positive")
+        if type(self.minimum_points) is not int or self.minimum_points < 1:
+            raise ValueError("minimum_points must be a strictly positive integer")
         if not 0 <= self.minimum_method_improvement <= 1:
             raise ValueError("minimum_method_improvement must be between 0 and 1")
         if not 0 <= self.maximum_normalized_error <= 1:
             raise ValueError("maximum_normalized_error must be between 0 and 1")
-        if self.maximum_gap_minutes < 1:
-            raise ValueError("maximum_gap_minutes must be positive")
+        if type(self.maximum_gap_minutes) is not int or self.maximum_gap_minutes < 1:
+            raise ValueError("maximum_gap_minutes must be a strictly positive integer")
         if self.interval <= timedelta(0):
             raise ValueError("interval must be positive")
 
@@ -98,12 +98,14 @@ def _contiguous_runs(
 
 
 def _masked_sequences(
-    run: Sequence[ConsumptionObservation], maximum_gap_minutes: int
+    run: Sequence[ConsumptionObservation], maximum_gap: timedelta, interval: timedelta
 ) -> Iterator[
     tuple[ConsumptionObservation, Sequence[ConsumptionObservation], ConsumptionObservation]
 ]:
-    """Yield every test window with real anchors around one to N masked points."""
-    for sequence_length in range(1, maximum_gap_minutes + 1):
+    """Yield every anchored test window whose masked duration is within the limit."""
+    for sequence_length in range(1, len(run) - 1):
+        if sequence_length * interval > maximum_gap:
+            break
         for start in range(1, len(run) - sequence_length):
             end = start + sequence_length
             yield run[start - 1], run[start:end], run[end]
@@ -172,7 +174,9 @@ def compare_imputation_methods(
 
         for run in _contiguous_runs(sorted_observations, active_config.interval):
             for previous, masked, following in _masked_sequences(
-                run, active_config.maximum_gap_minutes
+                run,
+                timedelta(minutes=active_config.maximum_gap_minutes),
+                active_config.interval,
             ):
                 sequence_count += 1
                 previous_value = cast(float, previous.consumption_kwh_raw)

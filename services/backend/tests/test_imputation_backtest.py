@@ -14,12 +14,14 @@ def observations(
     site_id: str,
     values: list[float | None],
     reasons_by_index: dict[int, tuple[str, ...]] | None = None,
+    *,
+    interval: timedelta = timedelta(minutes=1),
 ) -> list[ConsumptionObservation]:
     reasons = reasons_by_index or {}
     return [
         ConsumptionObservation(
             site_id=site_id,
-            measured_at=START + timedelta(minutes=index),
+            measured_at=START + interval * index,
             consumption_kwh_raw=value,
             null_reasons=reasons.get(index, ()),
         )
@@ -46,6 +48,26 @@ def test_provisional_configuration_uses_distinct_agreed_thresholds() -> None:
     assert config.maximum_normalized_error == pytest.approx(0.10)
     assert config.maximum_gap_minutes == 3
     assert config.interval == timedelta(minutes=1)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("minimum_points", 0),
+        ("minimum_points", -1),
+        ("minimum_points", 1.0),
+        ("minimum_points", True),
+        ("maximum_gap_minutes", 0),
+        ("maximum_gap_minutes", -1),
+        ("maximum_gap_minutes", 1.0),
+        ("maximum_gap_minutes", True),
+    ],
+)
+def test_point_and_gap_limits_must_be_strictly_positive_integers(
+    field: str, invalid_value: object
+) -> None:
+    with pytest.raises(ValueError, match=rf"{field} must be a strictly positive integer"):
+        BacktestConfig(**{field: invalid_value})  # type: ignore[arg-type]
 
 
 def test_metrics_follow_the_three_percentage_formulas() -> None:
@@ -130,6 +152,27 @@ def test_every_valid_window_from_one_to_three_minutes_is_tested(
 
     assert result.sequence_count == expected_sequences
     assert result.sample_count == expected_samples
+
+
+def test_three_minute_limit_accepts_one_to_three_missing_values_at_one_minute_cadence() -> None:
+    result = compare_imputation_methods(
+        observations("ONE_MINUTE", [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+        config=permissive_config(maximum_gap_minutes=3),
+    )[0]
+
+    assert result.sequence_count == 9
+    assert result.sample_count == 16
+
+
+def test_three_minute_limit_accepts_only_one_missing_value_at_two_minute_cadence() -> None:
+    cadence = timedelta(minutes=2)
+    result = compare_imputation_methods(
+        observations("TWO_MINUTES", [0.0, 1.0, 2.0, 3.0], interval=cadence),
+        config=permissive_config(maximum_gap_minutes=3, interval=cadence),
+    )[0]
+
+    assert result.sequence_count == 2
+    assert result.sample_count == 2
 
 
 def test_null_value_cuts_the_series() -> None:
