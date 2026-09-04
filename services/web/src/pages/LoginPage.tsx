@@ -3,7 +3,7 @@ import { ApiError } from '../api/client'
 import { useAuth } from '../context/AuthProvider'
 
 export function LoginPage() {
-    const { login } = useAuth()
+    const { login, sessionExpired } = useAuth()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState<string | null>(null)
@@ -29,6 +29,7 @@ export function LoginPage() {
                 <img src="/logo.png" alt="EnerVision" className="login-logo" />
                 <h1 id="login-title">Bienvenue sur EnerVision</h1>
                 <p>Connectez-vous pour suivre vos consommations énergétiques.</p>
+                {sessionExpired && <p className="login-notice" role="status">Votre session a expiré. Reconnectez-vous pour reprendre.</p>}
                 <form onSubmit={submit}>
                     <label htmlFor="email">Adresse e-mail<input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
                     <label htmlFor="password">Mot de passe<input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
