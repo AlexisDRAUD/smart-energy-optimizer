@@ -12,11 +12,35 @@ Les tables citées ici sont décrites dans `data-contract.md`, qui fait foi pour
 
 | Route | Methode | Role |
 |---|---|---|
-| `/api/v1/auth/login` | POST | rend un jeton signe |
+| `/api/v1/auth/login` | POST | rend un jeton signe et ouvre la session |
+| `/api/v1/auth/refresh` | POST | rend un jeton neuf a partir du cookie de session |
+| `/api/v1/auth/logout` | POST | efface le cookie de session |
 | `/api/v1/auth/me` | GET | identite du porteur du jeton |
 
-Le jeton se transmet dans l'entête `Authorization: Bearer <jeton>`. Durée de vie courte,
-un jeton signé ne se révoque pas.
+Deux jetons, deux roles distincts.
+
+L'**access token** se transmet dans l'entête `Authorization: Bearer <jeton>` a chaque appel.
+Il vit une heure (`ACCESS_TOKEN_EXPIRE_MINUTES`). Le front le garde en memoire et dans le
+`sessionStorage` de l'onglet.
+
+Le **refresh token** ne sort jamais du cookie `enervision_refresh_token`, pose par `login`
+et `refresh`. Il est `httpOnly`, donc invisible au JavaScript, limite au chemin
+`/api/v1/auth`, donc jamais envoye aux autres routes, et `Secure` des que `COOKIE_SECURE`
+est actif. Il vit sept jours (`REFRESH_TOKEN_EXPIRE_DAYS`) et sert uniquement a obtenir un
+access token neuf.
+
+Le cookie fonctionne parce que le navigateur ne parle qu'a une seule origine : le front et
+l'API sont servis par le meme hote, Vite qui proxifie `/api` en local, nginx qui relaie
+`location /api/` en production. Exposer l'API sur son propre domaine casserait ce montage
+et imposerait `SameSite=None` et du CORS avec identifiants.
+
+Quand un appel repond 401, le front appelle `refresh` une fois et rejoue l'appel. Si le
+refresh echoue a son tour, la session est finie et l'utilisateur revient sur la page de
+connexion.
+
+Un jeton signe ne se revoque pas : `logout` efface le cookie du navigateur, mais un refresh
+token copie ailleurs reste valable jusqu'a son expiration. Une revocation reelle demande une
+table de sessions cote base, elle n'est pas faite.
 
 Trois rôles, dans `users.role`. `viewer` lit tout. `operator` lit et acquitte les alertes.
 `admin` ajoute la gestion des comptes. Une route qui modifie quelque chose annonce le rôle
