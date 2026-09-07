@@ -16,4 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY services/ml .
 
-CMD ["python", "-m", "ml.train"]
+# Entrypoint: start MLflow server and run a training job on the bundled CSV
+COPY services/ml/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
