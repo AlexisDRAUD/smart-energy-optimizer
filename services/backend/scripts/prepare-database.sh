@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
-# Prepare la base pour tous les conteneurs du backend : schema puis donnees de
-# demonstration. Lance une fois par le service "migrate" du docker-compose, qui
+# Prepare la base pour tous les conteneurs du backend : schema Alembic puis
+# comptes de demonstration. Les sites et les mesures ne sont pas inseres ici,
+# ils viennent du collecteur et de l ETL.
+# Lance une fois par le service "migrate" du docker-compose, qui
 # s arrete ensuite. Les autres conteneurs attendent qu il se termine sans erreur.
 set -eu
 
@@ -22,11 +24,7 @@ done
 printf '%s\n' 'Application des migrations Alembic...'
 python -m alembic upgrade head
 
-if [ "${SEED_DEMO_DATA:-0}" = "1" ]; then
-  printf '%s\n' 'Insertion des donnees de demonstration...'
-  python -m app.db.seed
-else
-  printf '%s\n' 'SEED_DEMO_DATA different de 1 : aucune donnee de demonstration inseree.'
-fi
+printf '%s\n' 'Creation des comptes de demonstration...'
+python -m app.db.seed
 
 printf '%s\n' 'Base prete.'

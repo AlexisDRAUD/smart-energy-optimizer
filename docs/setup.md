@@ -179,12 +179,12 @@ donc attrapee par la suite de tests, pas decouverte par un coequipier.
 La production tourne sur Azure Container Apps avec un PostgreSQL manage, decision 35. La base
 managee n'a pas de dossier `/docker-entrypoint-initdb.d`, mais ce n'est plus un probleme :
 c'est la meme image `migrate` que celle du compose, lancee comme un job avant le deploiement de
-l'API, avec `DATABASE_URL` pointant vers la base managee et `SEED_DEMO_DATA=0`.
+l'API, avec `DATABASE_URL` pointant vers la base managee.
 
 | | En local | Sur Azure |
 |---|---|---|
 | Qui applique le schema | le service `migrate` du compose | la meme image, lancee comme un job |
-| Donnees de demonstration | `SEED_DEMO_DATA=1` | `SEED_DEMO_DATA=0` |
+| Ce que le job insere | les comptes de demonstration | les comptes de demonstration |
 | D'ou viennent les secrets | le `.env` | la configuration de l'application et un coffre |
 | Comment on joint la base | `localhost:5432`, limite a la machine | le serveur manage, en SSL obligatoire, depuis une adresse autorisee dans le pare-feu |
 

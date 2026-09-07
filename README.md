@@ -38,13 +38,13 @@ Pour repartir d'une base vide :
 docker compose down -v && docker compose up
 ```
 
-Les donnees de demonstration couvrent 24 heures de mesures a la minute sur les trois
-sites `LYO-01`, `GRE-01` et `NAN-01`, plus les etats des capteurs, la qualite, une
-alerte et une execution ETL. Le seed est rejouable : il ne fait rien si les sites
-existent deja. Pour demarrer sans lui, mettre `SEED_DEMO_DATA=0` dans le `.env`.
+Le demarrage ne cree aucune mesure ni aucun site. Les sites, les mesures, les
+predictions et les alertes viennent de la chaine elle-meme : le collecteur
+interroge la source, l ETL transforme, l API calcule. La base est donc vide au
+premier `docker compose up`, puis se remplit toute seule.
 
-Le seed cree egalement les comptes suivants avec le mot de passe
-`EnerVisionDemo2026!` :
+La seule chose inseree au demarrage, ce sont les comptes, parce que rien d autre
+ne les cree. Ils portent le mot de passe `EnerVisionDemo2026!` :
 
 | Nom | E-mail | Role |
 |---|---|---|
