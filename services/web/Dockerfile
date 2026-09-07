@@ -12,7 +12,7 @@ ENV VITE_BACK_API_URL=${VITE_BACK_API_URL}
 
 RUN npm run build
 
-FROM nginx:1.27-alpine AS production
+FROM nginx:1.30-alpine3.24 AS production
 
 ENV API_UPSTREAM=http://api:8080
 ENV NGINX_ENVSUBST_FILTER=API_UPSTREAM
