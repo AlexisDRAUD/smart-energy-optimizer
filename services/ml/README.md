@@ -64,17 +64,31 @@ docker compose up migrate
 docker compose up -d api web
 ```
 
-4. Entraîner et enregistrer les modèles dans MLflow (exécution «one-shot» dans
-   le conteneur contenant les dépendances ML) :
+4. Entraîner et enregistrer les modèles dans MLflow :
+
+Le conteneur `mlflow` démarre maintenant le serveur MLflow puis exécute
+automatiquement un entraînement à partir du CSV inclus (`services/ml/donnees.csv`).
+Par défaut il force `--min-train-rows 1` pour permettre un seed local.
+
+Démarrage et entraînement :
 
 ```bash
-# depuis la racine du repo
-# Si vous avez la base disponible, utilisez --use-db
-# Pour le moment (données locales CSV) :
-docker compose run --rm mlflow python main.py --csv donnees.csv --train-months 22 --holdout-months 2
+# démarre le serveur MLflow (le conteneur exécutera ensuite l'entraînement CSV)
+docker compose up -d mlflow
+```
 
-# ou (chemin explicite) :
-# docker compose run --rm mlflow python main.py --csv services/ml/donnees.csv --train-months 22 --holdout-months 2
+Personnaliser l'appel d'entraînement via la variable d'environnement `TRAIN_ARGS` :
+
+```bash
+# exemple : changer le nombre de mois d'entraînement
+TRAIN_ARGS="--csv donnees.csv --train-months 22 --holdout-months 2 --min-train-rows 1" docker compose up -d mlflow
+```
+
+Pour exécuter ponctuellement sans redémarrer le serveur :
+
+```bash
+# exécute le script d'entraînement dans le conteneur mlflow
+docker compose run --rm mlflow python main.py --csv services/ml/donnees.csv --min-train-rows 1
 ```
 
 5. Accéder à l'interface MLflow : http://127.0.0.1:5000 (ou http://<host>:5000 si vous exposez le port)

@@ -31,7 +31,7 @@ export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://127.0.0.1:5000}
 
 # Run training on the CSV bundled with the image
 TRAIN_CSV=${TRAIN_CSV:-donnees.csv}
-TRAIN_ARGS=${TRAIN_ARGS:---csv $TRAIN_CSV --train-months 22 --holdout-months 2}
+TRAIN_ARGS=${TRAIN_ARGS:---csv $TRAIN_CSV --train-months 22 --holdout-months 2 --min-train-rows 1}
 
 echo "Running training: python main.py ${TRAIN_ARGS}"
 # shellcheck disable=SC2086
