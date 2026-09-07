@@ -136,7 +136,7 @@ services:
         --host 0.0.0.0
         --port 5000
     ports:
-      - "5000:5000"
+      - "${MLFLOW_HOST_PORT:-5000}:5000"
     volumes:
       - mlflow_data:/mlflow
     healthcheck:
