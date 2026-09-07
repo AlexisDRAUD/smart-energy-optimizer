@@ -22,6 +22,7 @@ x-backend: &backend
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
     SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}
     SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:-http://127.0.0.1:8000}
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
 
 services:
   db:
@@ -121,5 +122,23 @@ services:
   #       condition: service_completed_successfully
   #   restart: unless-stopped
 
+  mlflow:
+    build:
+      context: .
+      dockerfile: services/ml/Dockerfile
+    image: smart-energy-optimizer-mlflow:local
+    command: >
+      mlflow server
+        --backend-store-uri sqlite:///mlflow/mlflow.db
+        --default-artifact-root /mlflow/artifacts
+        --host 0.0.0.0
+        --port 5000
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
+
 volumes:
   db_data:
+  mlflow_data:
