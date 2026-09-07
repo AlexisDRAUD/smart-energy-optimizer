@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { ApiOverview, ApiQuality, ApiRecommendation, ApiSensorSite } from '../types/api'
+import type { ApiOverview, ApiQuality, ApiSensorSite } from '../types/api'
 
 /** Consommation et taux de charge de tous les sites, en un seul appel. */
 export function getOverview() {
@@ -18,9 +18,4 @@ export async function getSensorStatus(siteId?: string) {
     if (siteId) params.set('site_id', siteId)
     const response = await apiRequest<{ items: ApiSensorSite[] }>(`/api/v1/quality/sensors?${params}`)
     return response.items
-}
-
-export async function getRecommendations(siteId: string) {
-    const response = await apiRequest<{ recommendations: ApiRecommendation[] }>(`/api/v1/recommendations?site_id=${encodeURIComponent(siteId)}`)
-    return response.recommendations
 }

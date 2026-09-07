@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     seed_user_password: str
 
     prediction_refresh_interval_seconds: int = 60
+    prediction_horizon_minutes: int = 120
     local_model_name: str = "local-moving-average"
     local_model_version: str = "local-1"
 

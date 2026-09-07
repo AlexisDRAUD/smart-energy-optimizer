@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getAlerts } from '../api/alerts'
-import { getOverview, getRecommendations } from '../api/dashboard'
+import { getOverview } from '../api/dashboard'
 import { getLatestPrediction, getPredictions } from '../api/predictions'
 import { getLatestReading } from '../api/sites'
 import { getReadings } from '../api/readings'
@@ -11,7 +11,7 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodGranularity, periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
-import type { ApiAlert, ApiLatestReading, ApiOverview, ApiOverviewSite, ApiPrediction, ApiReadings, ApiRecommendation } from '../types/api'
+import type { ApiAlert, ApiLatestReading, ApiOverview, ApiOverviewSite, ApiPrediction, ApiReadings } from '../types/api'
 import { formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
 type DashboardData = {
@@ -21,7 +21,6 @@ type DashboardData = {
     prediction: ApiPrediction | null
     predictions: ApiPrediction[]
     readings: ApiReadings
-    recommendations: ApiRecommendation[]
 }
 
 export function DashboardPage() {
@@ -36,12 +35,11 @@ export function DashboardPage() {
         setError(null)
         try {
             const start = periodStart(period)
-            const [overview, alerts, predictions, readings, recommendations] = await Promise.all([
+            const [overview, alerts, predictions, readings] = await Promise.all([
                 getOverview(),
                 getAlerts({ start }),
                 getPredictions(siteId, start),
                 getReadings({ siteId, start, granularity: periodGranularity(period) }),
-                getRecommendations(siteId),
             ])
             // L'API répond 404 quand rien n'existe encore pour ce site. Ce
             // n'est pas une panne, la page doit rester affichable.
@@ -49,7 +47,7 @@ export function DashboardPage() {
                 getLatestReading(siteId).catch(() => null),
                 getLatestPrediction(siteId).catch(() => null),
             ])
-            setData({ overview, alerts, latest, prediction, predictions, readings, recommendations })
+            setData({ overview, alerts, latest, prediction, predictions, readings })
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
         } finally {
@@ -162,20 +160,6 @@ export function DashboardPage() {
                                     : <p className="empty-state">Aucune alerte sur la période.</p>}
                             </article>
 
-                            <article className="side-card">
-                                <h2>Recommandations</h2>
-                                {data.recommendations.length
-                                    ? data.recommendations.slice(0, 3).map((recommendation, index) => (
-                                        <div className="recommendation" key={recommendation.action}>
-                                            <b>{String(index + 1).padStart(2, '0')}</b>
-                                            <div>
-                                                <strong>{recommendation.action}</strong>
-                                                <p>Économie estimée : {formatEnergy(recommendation.estimated_savings_kwh)}</p>
-                                            </div>
-                                        </div>
-                                    ))
-                                    : <p className="empty-state">Aucune recommandation.</p>}
-                            </article>
                         </div>
                     </section>
 

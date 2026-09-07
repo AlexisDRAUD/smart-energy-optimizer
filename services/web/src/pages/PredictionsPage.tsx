@@ -16,8 +16,6 @@ type ModelData = {
     history: ApiPrediction[]
 }
 
-const availabilityLabels = { local_fallback: 'Repli local', mlflow: 'MLflow' }
-
 const columns: Column<ApiPrediction>[] = [
     { header: 'Prévue pour', cell: (row) => formatDateTime(row.target_at) },
     { header: 'Calculée le', cell: (row) => formatDateTime(row.predicted_at) },
@@ -93,26 +91,30 @@ export function PredictionsPage() {
                         <strong>{formatEnergy(data.prediction?.predicted_kwh)}</strong>
                         <span>
                             {data.prediction
-                                ? `Attendue pour ${formatDateTime(data.prediction.target_at)}, horizon ${data.model.horizon_minutes} minutes`
+                                ? `Attendue pour ${formatDateTime(data.prediction.target_at)}, horizon ${data.prediction.horizon_minutes} minutes`
                                 : 'Aucune prévision disponible pour ce site'}
                         </span>
                     </article>
 
                     <section className="card-grid">
-                        <MetricCard label="Modèle" value={data.model.model_version} hint={data.model.model_name} dot="blue" />
                         <MetricCard
-                            label="Disponibilité"
-                            value={availabilityLabels[data.model.availability]}
-                            hint={`MLflow ${data.model.mlflow_available ? 'joignable' : 'injoignable'}`}
+                            label="Modèle"
+                            value={data.model.model_version ?? '—'}
+                            hint={data.model.model_name ?? undefined}
+                            dot="blue"
+                        />
+                        <MetricCard
+                            label="Horizon"
+                            value={data.model.horizon_minutes === null ? '—' : `${data.model.horizon_minutes} minutes`}
                             dot="teal"
                         />
                         <MetricCard
-                            label="Entraîné le"
-                            value={formatDateTime(data.model.trained_at)}
-                            hint={`Horizon ${data.model.horizon_minutes} minutes`}
+                            label="Dernière prévision"
+                            value={formatDateTime(data.model.last_prediction_at)}
+                            hint={`${data.model.predictions_total} produites, dont ${data.model.predictions_scored} évaluées`}
                             dot="green"
                         />
-                        <MetricCard label="Prévisions évaluées" value={data.performance.sample_size} dot="green" />
+                        <MetricCard label="Évaluées sur la période" value={data.performance.sample_size} dot="orange" />
                     </section>
 
                     <article className="table-card">

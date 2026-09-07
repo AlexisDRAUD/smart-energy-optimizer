@@ -6,10 +6,17 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
-import type { ApiQuality, ApiQualityPoint, ApiSensorSite } from '../types/api'
+import type { ApiQuality, ApiQualityPoint, ApiSensorPoint, ApiSensorSite } from '../types/api'
 import { formatDateTime, formatDay, formatPercent } from '../utils/formatters'
 
-const sensorLabels = {
+// overall vaut null quand le site n'a aucune observation : l'etat est inconnu.
+const overallLabels = {
+    ok: 'Tous opérationnels',
+    failing: 'Au moins un capteur en défaut',
+    unknown: 'Aucune observation',
+}
+
+const sensorLabels: Record<ApiSensorPoint['sensor'], string> = {
     consumption: 'Consommation',
     electrical: 'Électrique',
     temperature: 'Température',
@@ -94,7 +101,7 @@ export function DataQualityPage() {
                     <div>
                         <h2>État des capteurs</h2>
                     </div>
-                    <span>{sensors ? (sensors.overall === 'ok' ? 'Tous opérationnels' : 'Au moins un capteur en défaut') : '—'}</span>
+                    <span>{overallLabels[sensors?.overall ?? 'unknown']}</span>
                 </div>
                 {sensors
                     ? (

@@ -75,8 +75,8 @@ def prediction_history(
 
 
 @model_router.get("", response_model=ModelResponse)
-def get_model(_: CurrentUser) -> dict[str, object]:
-    return model_metadata()
+def get_model(_: CurrentUser, db: DbSession) -> dict[str, object]:
+    return model_metadata(db)
 
 
 @model_router.get("/performance", response_model=ModelPerformanceResponse)

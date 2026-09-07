@@ -121,13 +121,17 @@ Le taux de charge est calculé ici, a partir de `capacity_kw`. Le front ne divis
 | Route | Methode | Rend |
 |---|---|---|
 | `/api/v1/quality` | GET | complétude par site et par jour |
-| `/api/v1/quality/sensors` | GET | dernier état connu des cinq capteurs par site |
+| `/api/v1/quality/sensors` | GET | dernier état connu de chaque capteur ayant remonté |
 
 `quality` lit `data_quality_daily` et prend `site_id`, `start`, `end`. C'est ce qui alimente
 le graphe de la page Qualité, sans rescanner `readings`.
 
-`sensors` lit `sensor_status` et rend, pour chaque site, l'état de `consumption`,
-`electrical`, `temperature`, `humidity`, `network`, plus un `overall`.
+`sensors` lit `sensor_status` et rend, par site, la dernière observation de chaque capteur
+qui a déjà remonté quelque chose. Un capteur qui n'a jamais rien envoyé n'apparait pas :
+l'absence d'observation n'est pas une panne, et l'API ne parcourt pas une liste de capteurs
+écrite dans le code pour les déclarer en défaut. `overall` vaut `failing` si au moins un
+capteur observé est en défaut, `ok` si tous vont bien, et **null** quand le site n'a aucune
+observation, parce que son état est alors inconnu.
 
 ### Etat du systeme
 
@@ -158,22 +162,27 @@ Une prédiction rend `site_id`, `predicted_at`, `target_at`, `horizon_minutes`,
 sont nuls tant que la mesure réelle n'est pas arrivée, donc pendant deux heures. **Nuls, pas
 absents** : une clé qui disparait oblige le front a tester son existence a chaque affichage.
 
-`/model` rend `model_name`, `model_version`, la date d'entrainement, l'horizon et les
-métriques de l'essai. Si MLflow ne répond pas, l'API rend la version de la copie locale
-chargée au démarrage et le signale, elle ne rend pas une erreur.
+`/model` décrit le modèle en service **a partir de la table `predictions`**, et rien d'autre :
+`model_name`, `model_version` et `horizon_minutes` sont ceux de la dernière prévision écrite,
+`last_prediction_at` sa date, `predictions_total` et `predictions_scored` les comptes. Tant
+qu'aucune prévision n'existe, les trois premiers champs sont nuls.
+
+Il n'y a ni date d'entrainement, ni métriques d'essai, ni indicateur MLflow dans cette
+réponse : ce dépôt ne contient aucun entrainement et aucun client MLflow, ces champs
+décrivaient donc quelque chose qui n'existe pas. Ils reviendront le jour ou un registre de
+modeles sera branché.
 
 `/model/performance` prend `site_id` et une période, et rend l'erreur absolue moyenne et
 l'erreur quadratique moyenne du modèle, de la persistance et de la régression linéaire, sur
 la même période. Les trois côte a côte, sinon le chiffre du modèle ne veut rien dire.
 
-## Alertes et recommandations
+## Alertes
 
 | Route | Methode | Rend |
 |---|---|---|
 | `/api/v1/alerts` | GET | les alertes filtrées |
 | `/api/v1/alerts/summary` | GET | les compteurs et la répartition par jour |
 | `/api/v1/alerts/{id}/acknowledge` | POST | acquitte une alerte, rôle `operator` |
-| `/api/v1/recommendations` | GET | les recommandations pour un site |
 
 `alerts` prend `site_id`, `severity`, `status`, `type`, `start`, `end`, `limit`, `offset`. Par
 défaut, les alertes ouvertes des sept derniers jours, les plus récentes d'abord.
@@ -190,8 +199,11 @@ plutot qu'en comptant côté front une liste paginée.
 porteur du jeton. Il n'y a pas de route qui supprime une alerte. Une alerte traitée reste,
 c'est la trace.
 
-`recommendations` rend des actions chiffrées **en kWh**, avec le site, l'action proposée et le
-gain estimé. Jamais en euros : le prix n'est pas dans le jeu de données.
+Il n'y a plus de route `recommendations`. Elle rendait deux phrases en anglais écrites dans
+le code, choisies par un seuil de 0,8 sur le taux de charge, avec des taux d'économie de 0,1
+et 0,05 sortis de nulle part. Aucune table ne porte de recommandations et aucune règle métier
+n'a été décidée. La route reviendra quand ce sera le cas, chiffrée **en kWh** et jamais en
+euros, le prix n'étant pas dans le jeu de données.
 
 Les alertes de la source, elles, ne sont pas exposées. Elles arrivent dans la couche brute et
 servent de point de comparaison, pas de contenu du produit.

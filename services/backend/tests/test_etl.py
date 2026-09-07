@@ -19,7 +19,6 @@ def test_dashboard_data_is_served_from_transformed_tables(
     )
     sensors = client.get("/api/v1/quality/sensors", headers=viewer_headers)
     service_status = client.get("/api/v1/status", headers=viewer_headers)
-    recommendations = client.get("/api/v1/recommendations?site_id=LYO-01", headers=viewer_headers)
 
     assert overview.status_code == 200
     assert overview.json()["site_count"] == 3
@@ -27,8 +26,9 @@ def test_dashboard_data_is_served_from_transformed_tables(
     assert quality.status_code == 200
     assert quality.json()["total"] == 1
     assert sensors.status_code == 200
-    assert len(sensors.json()["items"][0]["sensors"]) == 5
+    site_sensors = sensors.json()["items"][0]
+    assert site_sensors["sensors"], "le seed pose des observations pour ce site"
+    assert all(sensor["observed_at"] is not None for sensor in site_sensors["sensors"])
+    assert site_sensors["overall"] in {"ok", "failing"}
     assert service_status.status_code == 200
     assert service_status.json()["etl"]["last_result"] == "ok"
-    assert recommendations.status_code == 200
-    assert "estimated_savings_kwh" in recommendations.json()["recommendations"][0]

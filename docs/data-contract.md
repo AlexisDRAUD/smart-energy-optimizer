@@ -257,7 +257,7 @@ prédiction non conservée ne se compare a rien.
 | `target_at` | `timestamptz` | instant prédit |
 | `horizon_minutes` | `integer` | 120 aujourd'hui, soit deux heures |
 | `model_name` | `text` | |
-| `model_version` | `text` | version chargée par l'API au démarrage |
+| `model_version` | `text` | version écrite par le service au moment de l'émission |
 | `predicted_kwh` | `double precision` | |
 | `actual_kwh` | `double precision` | nul tant que la mesure n'est pas arrivée, donc deux heures |
 | `absolute_error` | `double precision` | calculé par la base, pas par un service |

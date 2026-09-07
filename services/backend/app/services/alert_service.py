@@ -1,1 +1,0 @@
-"""Alert service table writes belong to the API; ETL never invokes this module."""
