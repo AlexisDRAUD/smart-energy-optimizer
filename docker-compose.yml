@@ -137,7 +137,28 @@ services:
       - "127.0.0.1:5000:5000"
     volumes:
       - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:5000')\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
+
+  ml-train:
+    build:
+      context: .
+      dockerfile: services/ml/Dockerfile
+    image: smart-energy-optimizer-ml-train:local
+    command: ["python", "main.py", "--use-db", "--train-months", "22", "--holdout-months", "2"]
+    environment:
+      <<: *backend-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mlflow:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   db_data:
