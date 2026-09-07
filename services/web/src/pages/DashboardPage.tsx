@@ -1,26 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAlerts } from '../api/alerts'
 import { getOverview } from '../api/dashboard'
-import { getLatestPrediction, getPredictions } from '../api/predictions'
+import { getConsumptionChart } from '../api/consumptionChart'
 import { getLatestReading } from '../api/sites'
-import { getReadings } from '../api/readings'
 import { ConsumptionChart } from '../components/charts/ConsumptionChart'
 import { DataTable, type Column } from '../components/common/DataTable'
 import { MetricCard } from '../components/common/MetricCard'
 import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
-import { periodGranularity, periodStart } from '../data/periods'
+import { chartWindow } from '../utils/consumptionChart'
 import { useFilters } from '../hooks/useFilters'
-import type { ApiAlert, ApiLatestReading, ApiOverview, ApiOverviewSite, ApiPrediction, ApiReadings } from '../types/api'
+import type { ApiAlert, ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
 import { formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
 type DashboardData = {
     overview: ApiOverview
     alerts: ApiAlert[]
     latest: ApiLatestReading | null
-    prediction: ApiPrediction | null
-    predictions: ApiPrediction[]
-    readings: ApiReadings
+    chart: ApiConsumptionChart
 }
 
 export function DashboardPage() {
@@ -28,45 +25,43 @@ export function DashboardPage() {
     const [data, setData] = useState<DashboardData | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const requestId = useRef(0)
 
     const load = useCallback(async () => {
         if (siteId === null) return
+        const id = ++requestId.current
         setIsLoading(true)
         setError(null)
+        setData(null)
         try {
-            const start = periodStart(period)
-            const [overview, alerts, predictions, readings] = await Promise.all([
+            const { start, end } = chartWindow(period)
+            const [overview, alerts, chart] = await Promise.all([
                 getOverview(),
                 getAlerts({ start }),
-                getPredictions(siteId, start),
-                getReadings({ siteId, start, granularity: periodGranularity(period) }),
+                getConsumptionChart(siteId, start, end),
             ])
             // L'API répond 404 quand rien n'existe encore pour ce site. Ce
             // n'est pas une panne, la page doit rester affichable.
-            const [latest, prediction] = await Promise.all([
-                getLatestReading(siteId).catch(() => null),
-                getLatestPrediction(siteId).catch(() => null),
-            ])
-            setData({ overview, alerts, latest, prediction, predictions, readings })
+            const latest = await getLatestReading(siteId).catch(() => null)
+            if (id === requestId.current) setData({ overview, alerts, latest, chart })
         } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
+            if (id === requestId.current) setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
         } finally {
-            setIsLoading(false)
+            if (id === requestId.current) setIsLoading(false)
         }
     }, [period, siteId])
 
     useEffect(() => {
         void load()
+        return () => { ++requestId.current }
     }, [load])
 
     const selectedSite = sites.find((site) => site.site_id === siteId)
-    // Le dernier relevé, pas le dernier point du graphique : les points
-    // agrégés sont des sommes et ne se comparent pas à une prévision.
     const currentValue = data?.latest?.consumption_kwh ?? null
-    const predictionValue = data?.prediction?.predicted_kwh ?? null
-    const deviation = currentValue !== null && predictionValue !== null && predictionValue !== 0
-        ? (currentValue - predictionValue) / predictionValue * 100
-        : null
+    const futurePredictions = data?.chart.future_predictions ?? []
+    const prediction = futurePredictions[futurePredictions.length - 1]
+    const comparison = data?.chart.last_evaluated
+    const deviation = comparison?.deviation_percent ?? null
 
     const siteNameOf = (siteIdentifier: string) => sites.find((site) => site.site_id === siteIdentifier)?.site_name ?? siteIdentifier
 
@@ -105,14 +100,19 @@ export function DashboardPage() {
                         />
                         <MetricCard
                             label="Prédiction H+2"
-                            value={formatEnergy(predictionValue)}
-                            hint={data.prediction ? `Prévision pour ${formatDateTime(data.prediction.target_at)}` : 'Aucune prévision disponible'}
+                            value={formatEnergy(prediction?.predicted_kwh)}
+                            hint={prediction ? `Pour ${formatDateTime(prediction.target_at)} · version ${data.chart.model_version}` : 'Aucune prévision future H+2 disponible'}
                             dot="teal"
                         />
                         <MetricCard
-                            label="Écart modèle / réel"
-                            value={deviation === null ? '—' : `${deviation > 0 ? '+' : ''}${formatPercent(deviation)}`}
-                            hint="Entre le dernier relevé et la prévision"
+                            label="Dernier écart évalué"
+                            value={deviation === null ? 'Indisponible' : `${deviation > 0 ? '+' : ''}${formatPercent(deviation)}`}
+                            hint={<>
+                                {comparison ? `${formatDateTime(comparison.target_at)} · H+2 (${comparison.horizon_minutes} min) · version ${comparison.model_version}` : `Aucune paire réel/prédit sur la période · H+2 · version ${data.chart.model_version}`}
+                                {comparison && <><br />Réel {formatEnergy(comparison.actual_kwh)} · prédit {formatEnergy(comparison.predicted_kwh)}</>}
+                                {comparison?.predicted_kwh === 0 && <><br />Pourcentage indisponible : prédiction égale à zéro.</>}
+                                <br />Dernière comparaison historique de la période.
+                            </>}
                             dot="orange"
                         />
                         <MetricCard
@@ -128,23 +128,28 @@ export function DashboardPage() {
                             <div className="card-heading">
                                 <div>
                                     <h2>Consommation réelle et prédite</h2>
-                                    <p>
-                                        {period === 'day'
-                                            ? `Mesures à la minute et prévisions pour ${selectedSite.site_name}`
-                                            : `Consommation agrégée pour ${selectedSite.site_name}`}
-                                    </p>
+                                    <p>Valeurs natives pour {selectedSite.site_name} · H+2 · {data.chart.model_name} · version {data.chart.model_version}</p>
                                 </div>
                                 <div className="legend">
                                     <span><i className="solid-line" /> Réel</span>
-                                    {period === 'day' && <span><i className="dashed-line" /> Prédiction</span>}
+                                    <span><i className="dashed-line" /> Prédiction H+2</span>
                                 </div>
                             </div>
-                            {data.readings.points.length
-                                ? <ConsumptionChart points={data.readings.points} predictions={period === 'day' ? data.predictions : []} />
-                                : <p className="empty-state">Aucun relevé sur la période.</p>}
+                            <p>Du {formatDateTime(data.chart.start)} au {formatDateTime(data.chart.end)} · heures locales</p>
+                            <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
+                            <p>Couverture réelle exploitable : {formatPercent(data.chart.reading_coverage.percent)} · {data.chart.reading_coverage.received_minutes}/{data.chart.reading_coverage.expected_minutes} minutes reçues · {data.chart.reading_coverage.missing_minutes} absentes · {data.chart.reading_coverage.null_minutes} nulles.</p>
+                            <p>{data.chart.reading_coverage.first_at ? `Relevés disponibles du ${formatDateTime(data.chart.reading_coverage.first_at)} au ${formatDateTime(data.chart.reading_coverage.last_at)}.` : 'Aucun relevé disponible.'}</p>
+                            <p>Couverture des prédictions historiques : {formatPercent(data.chart.prediction_coverage.percent)} · {data.chart.prediction_coverage.received_minutes}/{data.chart.prediction_coverage.expected_minutes} minutes.</p>
+                            <p>kWh déclarés par la source, sans conversion. Cadence attendue : une minute ; durée physique couverte par une valeur à confirmer avec le contrat Data.</p>
                         </article>
 
                         <div className="right-column">
+                            <article className="side-card">
+                                <h2>Prévisions futures H+2</h2>
+                                <p>Du {formatDateTime(data.chart.end)} au {formatDateTime(data.chart.future_end)} · version {data.chart.model_version}</p>
+                                <ConsumptionChart points={[]} predictions={data.chart.future_predictions} start={data.chart.end} end={data.chart.future_end} cadenceSeconds={data.chart.cadence_seconds} label="Prévisions futures H+2" />
+                                <p>{data.chart.future_coverage.received_minutes}/{data.chart.future_coverage.expected_minutes} minutes avec prévision disponible. Les absences restent visibles.</p>
+                            </article>
                             <article className="side-card">
                                 <h2>Alertes récentes</h2>
                                 {data.alerts.length

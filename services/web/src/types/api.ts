@@ -10,6 +10,49 @@ export type Severity = 'low' | 'medium' | 'high' | 'critical'
 export type AlertStatus = 'open' | 'acknowledged' | 'closed'
 export type Granularity = 'minute' | 'quarter' | 'hour' | 'day'
 
+export type ApiChartCoverage = {
+    expected_minutes: number
+    received_minutes: number
+    missing_minutes: number
+    null_minutes: number
+    valid_minutes: number
+    percent: number
+    first_at: string | null
+    last_at: string | null
+}
+
+export type ApiChartComparison = {
+    target_at: string
+    actual_kwh: number
+    predicted_kwh: number
+    deviation_percent: number | null
+    horizon_minutes: 120
+    model_version: string
+}
+
+export type ApiConsumptionChart = {
+    site_id: string
+    start: string
+    end: string
+    future_end: string
+    unit: 'kWh'
+    unit_basis: 'source_declared'
+    measurement_interval_seconds: null
+    cadence_seconds: 60
+    horizon_minutes: 120
+    model_name: string
+    model_version: string
+    max_readings: number
+    max_predictions: number
+    readings: ApiReadingPoint[]
+    historical_predictions: ApiPrediction[]
+    future_predictions: ApiPrediction[]
+    reading_coverage: ApiChartCoverage
+    prediction_coverage: ApiChartCoverage
+    future_coverage: ApiChartCoverage
+    last_evaluated: ApiChartComparison | null
+}
+
 export type ApiToken = {
     access_token: string
     token_type: string

@@ -27,6 +27,28 @@ Une seule base PostgreSQL. Deux couches, brute et transformée. Le schema n'exis
 
 ## Conventions générales
 
+### Précision pour le graphique de comparaison
+
+`consumption_kwh` et `predicted_kwh` sont affichés sans transformation, dans l'unité
+**déclarée par la source : kWh**. La cadence attendue des observations est une minute.
+Cette cadence ne démontre pas à elle seule la durée physique d'intégration d'une
+valeur. La source fournit actuellement la même valeur pour `consumption_kw` et
+`consumption_kwh` (voir plus bas) : l'unité physique et la durée d'intégration restent
+à confirmer avec le propriétaire de la source. Aucune décision de conversion n'est
+prise ici, notamment aucune division/multiplication par 60 et aucun renommage en kW.
+
+La route de graphique expose `unit="kWh"`, `unit_basis="source_declared"`,
+`cadence_seconds=60` et `measurement_interval_seconds=null` pour rendre cette limite
+explicite. H+2 désigne l'horizon de la cible, **pas une énergie cumulée pendant deux
+heures**. Réel et prédit sont comparés sur la même valeur native au timestamp cible.
+La carte « Dernier écart évalué » est une comparaison historique d'affichage ; sa
+lecture ne réécrit ni `actual_kwh`, ni `absolute_error`, ni `scored_at` en base.
+
+Cette précision ne modifie ni les données stockées, ni l'ETL, ni l'imputation, ni
+les modèles, ni les agrégations existantes. Les taux de charge de `/overview`
+conservent leur fonctionnement existant ; leur ambiguïté kWh/kW n'est pas résolue
+par cette correction du graphique.
+
 - Horodatages en **temps universel**, type `timestamptz`. Conversion en heure locale a
   l'affichage uniquement.
 - Énergie en **kWh**, puissance en **kW**. L'unité figure dans le nom de la colonne.

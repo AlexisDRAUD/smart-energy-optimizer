@@ -275,3 +275,46 @@ class UsersResponse(ContractModel):
     total: int
     limit: int
     offset: int
+
+
+class ChartCoverage(ContractModel):
+    expected_minutes: int = Field(ge=0)
+    received_minutes: int = Field(ge=0)
+    missing_minutes: int = Field(ge=0)
+    null_minutes: int = Field(ge=0)
+    valid_minutes: int = Field(ge=0)
+    percent: float = Field(ge=0, le=100)
+    first_at: ISODateTime | None
+    last_at: ISODateTime | None
+
+
+class ChartComparison(ContractModel):
+    target_at: ISODateTime
+    actual_kwh: float
+    predicted_kwh: float
+    deviation_percent: float | None
+    horizon_minutes: Literal[120]
+    model_version: str
+
+
+class ConsumptionChartResponse(ContractModel):
+    site_id: str
+    start: ISODateTime
+    end: ISODateTime
+    future_end: ISODateTime
+    unit: Literal["kWh"]
+    unit_basis: Literal["source_declared"]
+    measurement_interval_seconds: None
+    cadence_seconds: Literal[60]
+    horizon_minutes: Literal[120]
+    model_name: str
+    model_version: str
+    max_readings: int
+    max_predictions: int
+    readings: list[ReadingPoint]
+    historical_predictions: list[PredictionResponse]
+    future_predictions: list[PredictionResponse]
+    reading_coverage: ChartCoverage
+    prediction_coverage: ChartCoverage
+    future_coverage: ChartCoverage
+    last_evaluated: ChartComparison | None

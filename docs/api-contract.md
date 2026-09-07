@@ -48,6 +48,55 @@ qu'elle exige.
 
 ## Donnees
 
+### Graphique de comparaison (valeurs natives)
+
+`GET /api/v1/consumption-chart?site_id=...&start=...&end=...` est une route de
+lecture authentifiée dédiée au dashboard. Les utilisateurs actifs peuvent lire tous
+les sites, conformément à la politique actuelle ; un site inconnu rend 404. Il
+n'existe pas actuellement de droits par site.
+
+- `start` et `end` sont obligatoires, en ISO 8601 UTC. L'historique est exactement
+  `[start, end[`, de durée strictement positive et au plus 30 jours (720 heures
+  écoulées). `end` ne peut pas être dans le futur.
+- Les prévisions après cette fenêtre sont séparées dans `future_predictions`, sur
+  `[end, future_end[`, où `future_end = end + 120 minutes`. Pour une requête ancienne,
+  ce sont des prévisions après sa borne de fin, pas nécessairement après aujourd'hui.
+- Le MVP sélectionne exclusivement H+2 (`horizon_minutes=120`) et le nom/version
+  configurés par `LOCAL_MODEL_NAME` / `LOCAL_MODEL_VERSION`, les mêmes paramètres
+  que le producteur actuel. Aucun repli sur une autre version quand elle est absente.
+  Le serveur renvoie ces métadonnées même si les séries sont vides.
+- Plafonds fixes : 43 201 mesures et 43 321 prédictions (historique et futur réunis).
+  Les requêtes filtrent par site et timestamps, utilisent les index composites
+  existants, et lisent au plus plafond + 1 lignes pour détecter un dépassement.
+  Chaque requête de séries a un délai SQL maximal de 5 secondes (local à la
+  transaction) ; une expiration produit 503 explicite, sans réponse partielle.
+  Une réponse réussie contient la fenêtre complète ; dépassement de durée ou de
+  volume = 422 explicite. `limit`, `offset`, choix de modèle et autres paramètres
+  supplémentaires sont refusés avec 422. Il n'y a ni pagination ni LTTB sur cette route.
+- `readings` contient les valeurs et timestamps natifs, y compris les nulls, sans
+  somme, arrondi, conversion ou imputation supplémentaire. Les prédictions sont
+  ordonnées par cible. Une minute absente ne devient pas une mesure nulle synthétique.
+- `reading_coverage`, `prediction_coverage` et `future_coverage` comptent les minutes
+  UTC touchées par chaque fenêtre : attendues, reçues, absentes, reçues mais nulles,
+  exploitables. `percent` est le pourcentage de minutes exploitables. Les bornes
+  partielles comptent chacune une minute ; plusieurs observations dans une minute
+  ne gonflent pas cette couverture. `first_at`/`last_at` décrivent les observations
+  disponibles, y compris nulles, et ne remplacent jamais le domaine du graphique.
+- `last_evaluated` est la dernière paire exploitable **dans l'historique demandé**,
+  au même site et exactement `measured_at == target_at`, pour la version/H+2
+  sélectionnés. Elle est évaluée à la lecture depuis le réel natif disponible,
+  sans modifier les scores stockés. Le pourcentage conserve la formule d'affichage
+  `(réel - prédit) / prédit * 100` ; il est nul si le prédit vaut zéro. Sans paire,
+  l'objet est nul. La carte s'appelle « Dernier écart évalué » et indique date,
+  horizon et version ; il ne s'agit pas d'un écart actuel.
+
+Le graphique historique conserve toujours les bornes demandées. Le futur est dans
+un graphique distinct. Les lignes sont interrompues sur une valeur nulle ou un
+intervalle entre observations supérieur à la cadence attendue (60 secondes).
+Un point isolé est dessiné ; aucune ligne ne relie artificiellement réel et prédit.
+Les endpoints existants `/readings`, `/predictions` et `/model/performance`, leurs
+sommes, paginations et calculs restent inchangés.
+
 ### Sites
 
 | Route | Methode | Rend |
