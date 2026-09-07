@@ -17,11 +17,25 @@ x-backend: &backend
     context: .
     dockerfile: services/backend/Dockerfile
   image: smart-energy-optimizer-backend:local
+  # Tout reglage qui peut differer entre le poste local et la VM passe par ici,
+  # et par le .env. Un reglage absent de ce bloc n atteint jamais les conteneurs :
+  # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
+  # signale.
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
     SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}
+    ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+    REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+    # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
+    COOKIE_SECURE: ${COOKIE_SECURE:-false}
     SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:-http://127.0.0.1:8000}
+    COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-60}
+    BACKFILL_DAYS: ${BACKFILL_DAYS:-7}
+    ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
+    ETL_BATCH_SIZE: ${ETL_BATCH_SIZE:-1000}
+    ETL_WINDOW_OVERLAP_MINUTES: ${ETL_WINDOW_OVERLAP_MINUTES:-30}
+    PREDICTION_REFRESH_INTERVAL_SECONDS: ${PREDICTION_REFRESH_INTERVAL_SECONDS:-60}
 
 services:
   db:
@@ -75,35 +89,20 @@ services:
     build:
       context: ./services/web
       args:
-        VITE_BACK_API_URL: ""
+        VITE_BACK_API_URL: ${VITE_BACK_API_URL:-}
     image: smart-energy-optimizer-web:local
     depends_on:
       api:
         condition: service_healthy
+    # WEB_BIND reste a 127.0.0.1 en local, ce qui limite l acces a la machine.
+    # Sur la VM, le .env le passe a 0.0.0.0 pour que le dashboard soit joignable.
     ports:
-      - "127.0.0.1:${WEB_PORT:-80}:80"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-80}:80"
+    restart: unless-stopped
 
-  # Le collecteur sera decommenté quand sa boucle sera integree a cette image.
-  # collector:
-  #   <<: *backend
-  #   command: ["python", "-m", "app.collector"]
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
-
-  # Execution ponctuelle : docker compose run --rm etl
-  etl:
-    <<: *backend
-    command: ["python", "-m", "app.etl"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    restart: "no"
-  # Le collecteur et l ETL sont decommentes quand leur code arrive. Meme image,
-  # commande differente. Ils gardent restart: unless-stopped, la cadence venant
-  # d une boucle dans le processus et non d un ordonnanceur (decision 26).
-  #
+  # Le collecteur et l ETL : meme image que l API, commande differente. Ils
+  # gardent restart: unless-stopped, la cadence venant d une boucle dans le
+  # processus et non d un ordonnanceur (decision 26).
   collector:
     <<: *backend
     command: ["python", "-m", "app.collector"]
@@ -111,14 +110,14 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
-  #
-  # etl:
-  #   <<: *backend
-  #   command: ["python", "-m", "app.etl"]
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
+
+  etl:
+    <<: *backend
+    command: ["python", "-m", "app.etl"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   db_data:
