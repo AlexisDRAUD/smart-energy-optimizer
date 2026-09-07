@@ -91,3 +91,31 @@ Remarques :
 - Le modèle loggé conserve ses dépendances dans l'objet enregistré — le backend
   devra disposer des mêmes packages pour charger les modèles via mlflow.pyfunc
   (scikit-learn, etc.).
+
+Databricks / usage local
+
+- Le compose fournit MinIO comme magasin d'artefacts S3 et MLflow exposé sur le
+  port ${MLFLOW_HOST_PORT:-5000}. Assurez-vous que Databricks (ou votre
+  notebook local via Databricks Connect) peut joindre ce host/port.
+
+- Exemple rapide (notebook Databricks / Databricks Connect) :
+
+```python
+import mlflow
+
+mlflow.set_tracking_uri("http://<host>:5000")
+mlflow.set_experiment("EnerVision_Pred_Conso")
+# installer seo-features dans le cluster (ou pip install depuis votre repo)
+# lancer le script d'entraînement (le même code que services/ml/main.py ou
+# utiliser services/ml/databricks_example.py fourni)
+```
+
+- Le fichier `services/ml/databricks_example.py` contient un exemple prêt à
+  exécuter qui charge la table `readings` et entraîne/enregistre un modèle pour
+  `site1`. Copier-coller les cellules dans un notebook Databricks fonctionne
+  très bien.
+
+Remarque : pour un usage multi-utilisateur/CI, préférez un stockage d'artefacts
+à distance (S3 réel) et protégez l'accès à MLflow (TLS + authent). Si vous
+voulez, j'ajoute l'exemple de notebook Databricks formaté (.dbc) ou un script
+pour créer la dépendance `seo-features` sur le cluster.
