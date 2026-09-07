@@ -1,8 +1,12 @@
-from app.collector.config import database_url, source_api_url
 from app.collector.loop import Collector
 from app.collector.storage import PostgresStorage
+from app.config import settings
 
 if __name__ == "__main__":
-    storage = PostgresStorage(database_url())
-    collector = Collector(60, source_api_url(), storage)
+    storage = PostgresStorage(settings.database_url)
+    collector = Collector(
+        settings.collector_interval_seconds,
+        settings.source_api_base_url,
+        storage,
+    )
     collector.run()

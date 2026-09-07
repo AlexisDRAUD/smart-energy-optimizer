@@ -33,6 +33,22 @@ class Settings(BaseSettings):
 
     seed_user_password: str
 
+    # Adresse de l API du formateur, la source des mesures.
+    source_api_base_url: str = "http://127.0.0.1:8000"
+
+    # Collecteur
+    collector_interval_seconds: int = 60
+    backfill_days: int = 7
+
+    # ETL
+    etl_interval_seconds: int = 60
+    etl_batch_size: int = 1000
+    # Recouvrement de la fenetre de lecture du brut. Chaque passage repart un
+    # peu avant la borne du precedent : une ligne inseree juste apres la lecture
+    # n est donc pas manquee. Le rechargement est sans effet, la cle unique de
+    # readings absorbe les doublons.
+    etl_window_overlap_minutes: int = 30
+
     prediction_refresh_interval_seconds: int = 60
     prediction_horizon_minutes: int = 120
     local_model_name: str = "local-moving-average"
