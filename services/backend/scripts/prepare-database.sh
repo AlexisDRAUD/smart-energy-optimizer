@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# Prepare la base pour tous les conteneurs du backend : schema Alembic puis
-# comptes de demonstration. Les sites et les mesures ne sont pas inseres ici,
-# ils viennent du collecteur et de l ETL.
+# Prepare la base pour tous les conteneurs du backend : schema Alembic, comptes
+# de demonstration, puis reprise de l historique depuis la source. Les sites et
+# les mesures transformees ne sont pas inseres ici, ils viennent de l ETL.
 # Lance une fois par le service "migrate" du docker-compose, qui
 # s arrete ensuite. Les autres conteneurs attendent qu il se termine sans erreur.
 set -eu
@@ -26,5 +26,18 @@ python -m alembic upgrade head
 
 printf '%s\n' 'Creation des comptes de demonstration...'
 python -m app.db.seed
+
+# Reprise de l historique au tout premier demarrage. Le module ne fait rien si
+# des mesures brutes existent deja : l endpoint historique regenere les donnees
+# a chaque appel, une seconde reprise ecrirait d autres valeurs.
+#
+# L echec est volontairement non bloquant. Les conteneurs api, etl et collector
+# attendent que celui-ci se termine SANS ERREUR : une source injoignable
+# laisserait sinon toute la pile a l arret, alors qu un historique manquant
+# n empeche ni le collecteur ni le dashboard de fonctionner.
+printf '%s\n' 'Reprise de l historique...'
+if ! python -m app.collector.backfill; then
+  printf '%s\n' 'Reprise en echec. Le collecteur prendra le relais en temps reel.' >&2
+fi
 
 printf '%s\n' 'Base prete.'
