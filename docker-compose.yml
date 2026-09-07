@@ -127,6 +127,8 @@ services:
       context: .
       dockerfile: services/ml/Dockerfile
     image: smart-energy-optimizer-mlflow:local
+    environment:
+      <<: *backend-env
     command: >
       mlflow server
         --backend-store-uri sqlite:///mlflow/mlflow.db
