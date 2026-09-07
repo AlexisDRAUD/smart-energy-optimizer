@@ -12,7 +12,7 @@ from app.api.v1.router import api_router
 from app.config import settings
 from app.db.session import SessionLocal, verify_database_connection
 from app.schemas.contract import ErrorResponse
-from app.services.prediction_service import model_metadata, refresh_stored_predictions
+from app.services.prediction_service import refresh_stored_predictions
 
 logger = getLogger(__name__)
 
@@ -126,8 +126,4 @@ def health_check() -> dict[str, str]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database unavailable",
         ) from error
-    return {
-        "status": "ok",
-        "database": "available",
-        "model_version": model_metadata()["model_version"],
-    }
+    return {"status": "ok", "database": "available"}
