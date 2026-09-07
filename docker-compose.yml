@@ -1,16 +1,21 @@
-# Environnement de travail local. Une seule commande : docker compose up
+# Un seul fichier pour le poste local et pour la VM. Une seule commande :
+# docker compose up. Tout ce qui differe entre les deux passe par le .env, jamais
+# par ce fichier : un second compose ne se testerait nulle part et divergerait.
 #
 # Ordre de demarrage :
-#   db  ->  migrate (schema Alembic + donnees de demonstration)  ->  api / etl
+#   db  ->  migrate (schema Alembic, comptes, reprise d historique)
+#        ->  api, collector, etl  ->  web
 #
-# Trois images seulement : backend, ml, web. L image backend est lancee
-# plusieurs fois avec des commandes differentes, parce que l API, le collecteur
-# et l ETL partagent la meme base, le meme code et la meme cadence de livraison.
-# Ils restent dans des conteneurs separes : le collecteur qui plante ne doit pas
-# emporter le dashboard.
+# Deux images ici : backend et web. L image backend est lancee quatre fois avec
+# des commandes differentes, parce que l API, le collecteur et l ETL partagent la
+# meme base, le meme code et la meme cadence de livraison. Ils restent dans des
+# conteneurs separes : le collecteur qui plante ne doit pas emporter le dashboard.
+# L image ml existe dans services/ml/ mais n est pas encore branchee ici.
 #
 # Le schema n existe que dans services/backend/alembic/versions/. Aucun fichier
 # SQL n est joue par l image PostgreSQL au premier demarrage.
+#
+# Voir docs/architecture.md et docs/configuration.md.
 
 x-backend: &backend
   build:
@@ -54,8 +59,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # Applique le schema puis cree les comptes, et s arrete.
-  # Les autres conteneurs attendent qu il se termine sans erreur.
+  # Applique le schema, cree les comptes, reprend l historique, puis s arrete.
+  # Les autres conteneurs attendent qu il se termine sans erreur, d ou la reprise
+  # rendue non bloquante dans le script : une source injoignable ne doit pas
+  # laisser toute la pile a l arret.
   migrate:
     <<: *backend
     command: ["./scripts/prepare-database.sh"]
@@ -102,7 +109,9 @@ services:
 
   # Le collecteur et l ETL : meme image que l API, commande differente. Ils
   # gardent restart: unless-stopped, la cadence venant d une boucle dans le
-  # processus et non d un ordonnanceur (decision 26).
+  # processus et non d un ordonnanceur. Pas de cron a installer, et un processus
+  # arrete ne rattrape rien, ce qui est coherent avec notre position sur les
+  # trous de collecte.
   collector:
     <<: *backend
     command: ["python", "-m", "app.collector"]
