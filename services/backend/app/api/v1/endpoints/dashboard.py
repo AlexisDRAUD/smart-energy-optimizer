@@ -6,14 +6,13 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.contract import SENSORS, require_utc_range, utc_iso, utc_now
+from app.core.contract import require_utc_range, utc_iso, utc_now
 from app.db.models.quality import DataQualityDaily, EtlRun, SensorStatus
 from app.db.models.reading import Reading
 from app.db.models.site import Site
 from app.schemas.contract import (
     OverviewResponse,
     QualityResponse,
-    RecommendationsResponse,
     SensorStatusResponse,
     StatusResponse,
 )
@@ -134,39 +133,45 @@ def sensor_quality(
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, object]:
+    """Dernier etat connu de chaque capteur ayant deja remonte quelque chose.
+
+    Un capteur qui n a jamais rien envoye n apparait pas. L API ne parcourt
+    plus une liste de capteurs ecrite dans le code pour les declarer en
+    defaut : l absence d observation n est pas une panne, c est une absence.
+    """
     if site_id is not None:
         sites = [_site_or_404(db, site_id)]
     else:
         sites = list(db.scalars(select(Site).order_by(Site.site_name)))
-    total = len(sites)
+
     response_sites = []
     for site in sites[offset : offset + limit]:
-        sensor_points = []
-        for sensor in SENSORS:
-            observation = db.scalar(
+        # DISTINCT ON rend la ligne la plus recente de chaque capteur du site.
+        observations = list(
+            db.scalars(
                 select(SensorStatus)
-                .where(SensorStatus.site_id == site.site_id, SensorStatus.sensor == sensor)
-                .order_by(SensorStatus.observed_at.desc())
-                .limit(1)
+                .where(SensorStatus.site_id == site.site_id)
+                .distinct(SensorStatus.sensor)
+                .order_by(SensorStatus.sensor, SensorStatus.observed_at.desc())
             )
-            sensor_points.append(
-                {
-                    "sensor": sensor,
-                    "observed_at": utc_iso(observation.observed_at) if observation else None,
-                    "status": observation.status if observation else "failing",
-                    "failing_until": utc_iso(observation.failing_until) if observation else None,
-                }
-            )
-        response_sites.append(
-            {
-                "site_id": site.site_id,
-                "sensors": sensor_points,
-                "overall": "failing"
-                if any(sensor["status"] == "failing" for sensor in sensor_points)
-                else "ok",
-            }
         )
-    return {"items": response_sites, "total": total, "limit": limit, "offset": offset}
+        sensors = [
+            {
+                "sensor": observation.sensor,
+                "observed_at": utc_iso(observation.observed_at),
+                "status": observation.status,
+                "failing_until": utc_iso(observation.failing_until),
+            }
+            for observation in observations
+        ]
+        if not sensors:
+            overall = None
+        elif any(sensor["status"] == "failing" for sensor in sensors):
+            overall = "failing"
+        else:
+            overall = "ok"
+        response_sites.append({"site_id": site.site_id, "sensors": sensors, "overall": overall})
+    return {"items": response_sites, "total": len(sites), "limit": limit, "offset": offset}
 
 
 @router.get("/status", response_model=StatusResponse)
@@ -193,47 +198,4 @@ def service_status(_: CurrentUser, db: DbSession) -> dict[str, object]:
             "last_completed_at": utc_iso(latest_finished.finished_at) if latest_finished else None,
             "last_result": latest_finished.status if latest_finished else None,
         },
-    }
-
-
-@router.get("/recommendations", response_model=RecommendationsResponse)
-def recommendations(
-    site_id: str,
-    _: CurrentUser,
-    db: DbSession,
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
-) -> dict[str, object]:
-    site = _site_or_404(db, site_id)
-    latest = db.scalar(
-        select(Reading)
-        .where(Reading.site_id == site_id, Reading.consumption_kwh.is_not(None))
-        .order_by(Reading.measured_at.desc())
-        .limit(1)
-    )
-    if latest is None or latest.consumption_kwh is None:
-        return {
-            "site_id": site_id,
-            "recommendations": [],
-            "total": 0,
-            "limit": limit,
-            "offset": offset,
-        }
-    load_rate = latest.consumption_kwh / site.capacity_kw
-    savings_rate = 0.1 if load_rate >= 0.8 else 0.05
-    action = (
-        "Shift flexible load outside the peak period."
-        if load_rate >= 0.8
-        else "Schedule discretionary equipment during lower-load periods."
-    )
-    recommendation = {
-        "action": action,
-        "estimated_savings_kwh": round(latest.consumption_kwh * savings_rate, 3),
-    }
-    return {
-        "site_id": site_id,
-        "recommendations": [recommendation][offset : offset + limit],
-        "total": 1,
-        "limit": limit,
-        "offset": offset,
     }

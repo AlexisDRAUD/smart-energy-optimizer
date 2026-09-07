@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException, status
 
 QUALITY_ORDER = {"good": 0, "partial": 1, "degraded": 2, "critical": 3}
-SENSORS = ("consumption", "electrical", "temperature", "humidity", "network")
 
 
 def utc_now() -> datetime:

@@ -129,9 +129,10 @@ export type ApiQuality = {
     total: number
 }
 
+/** Une observation reellement enregistree. Un capteur muet n'apparait pas. */
 export type ApiSensorPoint = {
     sensor: 'consumption' | 'electrical' | 'temperature' | 'humidity' | 'network'
-    observed_at: string | null
+    observed_at: string
     status: 'ok' | 'failing'
     failing_until: string | null
 }
@@ -139,7 +140,8 @@ export type ApiSensorPoint = {
 export type ApiSensorSite = {
     site_id: string
     sensors: ApiSensorPoint[]
-    overall: 'ok' | 'failing'
+    /** null quand le site n'a aucune observation : son etat est inconnu. */
+    overall: 'ok' | 'failing' | null
 }
 
 export type ApiMetric = {
@@ -148,14 +150,14 @@ export type ApiMetric = {
     mape_percent: number | null
 }
 
+/** Ce que la table predictions dit du modele. Null tant qu'aucune prevision n'existe. */
 export type ApiModel = {
-    model_name: string
-    model_version: string
-    trained_at: string | null
-    horizon_minutes: number
-    test_metrics: Record<string, number | null>
-    availability: 'local_fallback' | 'mlflow'
-    mlflow_available: boolean
+    model_name: string | null
+    model_version: string | null
+    horizon_minutes: number | null
+    last_prediction_at: string | null
+    predictions_total: number
+    predictions_scored: number
 }
 
 export type ApiModelPerformance = {
@@ -163,9 +165,4 @@ export type ApiModelPerformance = {
     model: ApiMetric
     persistence_baseline: ApiMetric
     linear_baseline: ApiMetric
-}
-
-export type ApiRecommendation = {
-    action: string
-    estimated_savings_kwh: number
 }

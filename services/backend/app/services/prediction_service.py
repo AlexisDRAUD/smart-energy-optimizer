@@ -3,28 +3,40 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from math import sqrt
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.contract import as_utc
+from app.core.contract import as_utc, utc_iso
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
 from app.db.models.site import Site
 
-PREDICTION_HORIZON_MINUTES = 120
 
+def model_metadata(db: Session) -> dict[str, object]:
+    """Decrire le modele en service a partir des previsions reellement ecrites.
 
-def model_metadata() -> dict[str, object]:
-    """Describe the startup-loaded local fallback without requiring MLflow."""
+    Rien n est declare ici : le nom, la version et l horizon sont ceux de la
+    derniere ligne de la table predictions. Tant qu aucune prevision n existe,
+    les champs sont nuls plutot que remplis avec des valeurs de facade.
+    """
+    latest = db.scalar(
+        select(Prediction).order_by(Prediction.predicted_at.desc(), Prediction.id.desc()).limit(1)
+    )
+    total = db.scalar(select(func.count()).select_from(Prediction)) or 0
+    scored = (
+        db.scalar(
+            select(func.count()).select_from(Prediction).where(Prediction.actual_kwh.is_not(None))
+        )
+        or 0
+    )
     return {
-        "model_name": settings.local_model_name,
-        "model_version": settings.local_model_version,
-        "trained_at": None,
-        "horizon_minutes": PREDICTION_HORIZON_MINUTES,
-        "test_metrics": {"mae": None, "rmse": None, "mape_percent": None},
-        "availability": "local_fallback",
-        "mlflow_available": False,
+        "model_name": latest.model_name if latest else None,
+        "model_version": latest.model_version if latest else None,
+        "horizon_minutes": latest.horizon_minutes if latest else None,
+        "last_prediction_at": utc_iso(latest.predicted_at) if latest else None,
+        "predictions_total": total,
+        "predictions_scored": scored,
     }
 
 
@@ -55,9 +67,10 @@ def score_due_predictions(db: Session, scored_at: datetime) -> int:
 
 
 def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
-    """Persist one 120-minute forecast for the latest available reading of each site."""
+    """Ecrire une prevision par site a l horizon configure, pour son dernier releve."""
     predicted_at = as_utc(now or datetime.now(UTC)).replace(second=0, microsecond=0)
     score_due_predictions(db, predicted_at)
+    horizon = settings.prediction_horizon_minutes
     created = 0
     for site in db.scalars(select(Site).where(Site.status == "active")):
         latest = db.scalar(
@@ -69,13 +82,13 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
         if latest is None:
             continue
 
-        target_at = as_utc(latest.measured_at) + timedelta(minutes=PREDICTION_HORIZON_MINUTES)
+        target_at = as_utc(latest.measured_at) + timedelta(minutes=horizon)
         existing = db.scalar(
             select(Prediction.id).where(
                 Prediction.site_id == site.site_id,
                 Prediction.target_at == target_at,
                 Prediction.model_version == settings.local_model_version,
-                Prediction.horizon_minutes == PREDICTION_HORIZON_MINUTES,
+                Prediction.horizon_minutes == horizon,
             )
         )
         if existing is not None:
@@ -96,7 +109,7 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
                 site_id=site.site_id,
                 predicted_at=predicted_at,
                 target_at=target_at,
-                horizon_minutes=PREDICTION_HORIZON_MINUTES,
+                horizon_minutes=horizon,
                 model_name=settings.local_model_name,
                 model_version=settings.local_model_version,
                 predicted_kwh=round(sum(recent) / len(recent), 3),
