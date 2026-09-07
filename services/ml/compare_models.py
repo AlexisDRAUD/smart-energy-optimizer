@@ -27,10 +27,13 @@ import math
 import sys
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
+from sklearn.neighbors import KNeighborsRegressor
 
 try:
     import lightgbm as lgb
@@ -57,6 +60,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=50,
         help="Max number of sites to train per-site models on (to limit runtime). 0 = all",
+    )
+    p.add_argument(
+        "--site-id",
+        default="SITE001",
+        help="Run experiments only for this site id (default: SITE001)",
     )
     return p.parse_args(argv)
 
@@ -146,6 +154,11 @@ def train_predict_global(
         if not HAS_LGB:
             raise RuntimeError("LightGBM not installed")
         model = lgb.LGBMRegressor(**model_params)
+    elif model_name == "ridge":
+        # Ridge expects parameter 'alpha'
+        model = Ridge(**model_params)
+    elif model_name == "knn":
+        model = KNeighborsRegressor(**model_params)
     else:
         raise ValueError("Unknown model")
     model.fit(x_train, y_train)
@@ -181,6 +194,10 @@ def train_predict_per_site(
             if not HAS_LGB:
                 raise RuntimeError("LightGBM not installed")
             model = lgb.LGBMRegressor(**model_params)
+        elif model_name == "ridge":
+            model = Ridge(**model_params)
+        elif model_name == "knn":
+            model = KNeighborsRegressor(**model_params)
         else:
             raise ValueError("Unknown model")
         # If too few rows, skip
@@ -262,6 +279,92 @@ def plot_predictions(out_df: pd.DataFrame, output_dir: Path, strategy: str):
         plt.close()
 
 
+def plot_metrics_summary(metrics_df: pd.DataFrame, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if metrics_df.empty:
+        return
+    # Clean metrics and ensure rmse exists
+    df = metrics_df.copy()
+    # try to normalize RMSE column if named differently
+    if "rmse" not in df.columns:
+        possible_rmse = [c for c in df.columns if "rmse" in c.lower()]
+        if possible_rmse:
+            df["rmse"] = df[possible_rmse[0]]
+        else:
+            # nothing to plot
+            return
+
+    df = df.fillna(float("nan"))
+
+    # choose label column (strategy or model)
+    if "strategy" in df.columns:
+        label_col = "strategy"
+    elif "model" in df.columns:
+        label_col = "model"
+    else:
+        # pick first non-numeric column, fallback to first column
+        non_num = df.select_dtypes(include=[object, "category"]).columns.tolist()
+        label_col = non_num[0] if non_num else df.columns[0]
+
+    df = df.sort_values("rmse")
+
+    plt.figure(figsize=(8, 4))
+    sns.barplot(x=label_col, y="rmse", data=df)
+    plt.xticks(rotation=45, ha="right")
+    plt.title("RMSE par stratégie")
+    plt.tight_layout()
+    plt.savefig(output_dir / "metrics_rmse_summary.png")
+    plt.close()
+
+
+def plot_2h_comparison(
+    all_preds: dict[str, pd.Series], holdout_df: pd.DataFrame, output_dir: Path
+) -> None:
+    """Pour chaque site d'un petit échantillon, tracer les vraies valeurs et
+    jusqu'à quatre prédictions de stratégies différentes sur la fenêtre des 2 dernières heures.
+    """
+    if not all_preds:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # build merged dataframe with predictions as columns
+    merged = holdout_df[["measured_at", "site_id", TARGET_COL]].copy()
+    # select up to 4 strategies (prefer global variants if available)
+    strategies = list(all_preds.keys())[:4]
+    for name in strategies:
+        merged[f"pred_{name}"] = all_preds[name].reindex(merged.index).values
+
+    max_ts = pd.to_datetime(merged["measured_at"].max())
+    start = max_ts - pd.Timedelta(hours=2)
+    measured = pd.to_datetime(merged["measured_at"]).copy()
+    window = merged[(measured >= start) & (measured <= max_ts)].copy()
+    if window.empty:
+        print("No data in last 2 hours for comparison plots")
+        return
+
+    sample_sites = window["site_id"].drop_duplicates().tolist()[:3]
+    for site in sample_sites:
+        df_site = window[window["site_id"] == site].sort_values("measured_at")
+        if df_site.empty:
+            continue
+        plt.figure(figsize=(12, 4))
+        plt.plot(
+            df_site["measured_at"], df_site[TARGET_COL], label="y_true", linewidth=2, color="black"
+        )
+        for name in strategies:
+            plt.plot(df_site["measured_at"], df_site[f"pred_{name}"], label=f"pred_{name}")
+        plt.legend()
+        plt.title(f"2-hour comparison - site {site}")
+        plt.xlabel("measured_at")
+        plt.ylabel(TARGET_COL)
+        plt.xticks(rotation=30)
+        plt.tight_layout()
+        plt.savefig(output_dir / f"compare_2h_site_{site}.png")
+        plt.close()
+
+    # MAE summary plot is produced in plot_metrics_summary; nothing to do here.
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     csv_path = Path(args.csv)
@@ -275,74 +378,96 @@ def main(argv: list[str] | None = None) -> int:
     df = load_and_sanitize(str(csv_path))
     supervised = build_supervised_features(df, args.horizon)
 
-    train_df, holdout_df = temporal_holdout(supervised, args.holdout_months)
+    # Run experiments for a single site (default: site1)
+    site = args.site_id
+    if site not in supervised["site_id"].unique():
+        print(f"No data for site '{site}' in dataset", file=sys.stderr)
+        return 3
 
-    strategies = []
-    strategies.append(
-        (
-            "global_rf",
-            lambda: train_predict_global(
-                "rf", train_df, holdout_df, {"n_estimators": 150, "random_state": 42, "n_jobs": -1}
-            ),
-        )
-    )
+    # Filter to the single site
+    site_df = supervised[supervised["site_id"] == site].reset_index(drop=True)
+    train_df, holdout_df = temporal_holdout(site_df, args.holdout_months)
+
+    # Choose three model types to compare: RandomForest, Ridge, and LightGBM (if available)
+    model_types: list[str] = ["rf", "ridge"]
     if HAS_LGB:
-        strategies.append(
-            (
-                "global_lgb",
-                lambda: train_predict_global("lgb", train_df, holdout_df, {"n_estimators": 200}),
-            )
-        )
-    strategies.append(
-        (
-            "per_site_rf",
-            lambda: train_predict_per_site(
-                "rf",
-                train_df,
-                holdout_df,
-                {"n_estimators": 100, "random_state": 42},
-                max_sites=args.max_sites,
-            ),
-        )
-    )
-    if HAS_LGB:
-        strategies.append(
-            (
-                "per_site_lgb",
-                lambda: train_predict_per_site(
-                    "lgb", train_df, holdout_df, {"n_estimators": 200}, max_sites=args.max_sites
-                ),
-            )
-        )
+        model_types.append("lgb")
+    else:
+        model_types.append("knn")
 
-    metrics_records = []
+    models_dir = out_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
 
-    for name, func in strategies:
-        print(f"Running strategy: {name}")
-        try:
-            preds_series, metrics = func()
-        except Exception as exc:
-            print(f"Strategy {name} failed: {exc}")
-            metrics_records.append({"strategy": name, "rmse": None, "mae": None})
+    metrics_records: list[dict] = []
+    all_preds: dict[str, pd.Series] = {}
+
+    # Train, save and evaluate each model type
+    for m in model_types:
+        print(f"Training model '{m}' for site {site}")
+        x_train, y_train = prepare_xy(train_df)
+        x_test, y_test = prepare_xy(holdout_df)
+
+        if x_train.shape[0] < 5:
+            print(f"Not enough training rows ({x_train.shape[0]}) for site {site}, skipping {m}")
             continue
+
+        if m == "rf":
+            model = RandomForestRegressor(n_estimators=150, random_state=42, n_jobs=-1)
+        elif m == "lgb":
+            if not HAS_LGB:
+                print("LightGBM not available, skipping lgb")
+                continue
+            model = lgb.LGBMRegressor(n_estimators=200)
+        elif m == "ridge":
+            model = Ridge(alpha=1.0)
+        elif m == "knn":
+            model = KNeighborsRegressor(n_neighbors=5)
+        else:
+            raise ValueError("Unknown model type")
+
+        model.fit(x_train, y_train)
+        preds = model.predict(x_test)
+        preds_series = pd.Series(preds, index=holdout_df.index)
+        all_preds[m] = preds_series
+
+        # Save model artifact
+        model_path = models_dir / f"{site}_{m}.joblib"
+        try:
+            joblib.dump(model, str(model_path))
+            print(f"Saved model to {model_path}")
+        except Exception as exc:
+            print(f"Could not save model {model_path}: {exc}", file=sys.stderr)
+
         out = holdout_df[["measured_at", "site_id"]].copy()
         out["prediction"] = preds_series.values
         out["y_true"] = holdout_df[TARGET_COL].values
-        # Save predictions
-        out_path = out_dir / f"predictions_{name}.csv"
+
+        out_path = out_dir / f"predictions_{site}_{m}.csv"
         out.to_csv(out_path, index=False)
         print(f"Saved predictions to {out_path} (n={len(out)})")
-        # compute metrics
-        m = compute_metrics(out["y_true"].to_numpy(), out["prediction"].to_numpy())
-        metrics_records.append({"strategy": name, "rmse": m["rmse"], "mae": m["mae"]})
-        # plot
-        plot_predictions(out, out_dir, name)
 
-    # Save metrics summary
+        m_stats = compute_metrics(out["y_true"].to_numpy(), out["prediction"].to_numpy())
+        metrics_records.append({"model": m, "rmse": m_stats["rmse"], "mae": m_stats["mae"]})
+
+        plot_predictions(out, out_dir, f"{site}_{m}")
+        print(f"{m} metrics: rmse={m_stats['rmse']:.4f}, mae={m_stats['mae']:.4f}")
+
+    # Summary
     metrics_df = pd.DataFrame(metrics_records)
     metrics_df.to_csv(out_dir / "metrics_summary.csv", index=False)
     print("Metrics summary saved to", out_dir / "metrics_summary.csv")
 
+    try:
+        plot_metrics_summary(metrics_df, out_dir)
+    except Exception as exc:
+        print("Could not plot metrics summary:", exc)
+
+    try:
+        plot_2h_comparison(all_preds, holdout_df, out_dir)
+    except Exception as exc:
+        print("Could not produce 2h comparison plots:", exc)
+
+    print("Finished site-level comparison")
     return 0
 
 
