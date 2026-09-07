@@ -1,5 +1,10 @@
 # Modele
 
+> **Hors de ce lot.** `services/ml/` n'est pas termine et n'apparait pas dans le
+> `docker-compose.yml`. Ce document decrit la cible visee, pas un composant qui tourne. Les
+> tables `predictions` sont aujourd'hui remplies par une boucle de l'API avec un modele local
+> de moyenne mobile, pas par un modele entraine.
+
 ## Cible
 
 Consommation en kWh a **deux heures**, emise a la minute. L'horizon vient du temps qu'il faut
@@ -16,7 +21,11 @@ Toutes calculees par `packages/features`, jamais ailleurs. Une formule dupliquee
 l'entrainement et le service degrade le modele en production sans faire echouer un seul test.
 
 Familles retenues : valeurs recentes du site, agregats glissants, variables de calendrier
-recalculees depuis l'horodatage, meteo (temperature, humidite, ensoleillement), type de site.
+recalculees depuis l'horodatage, meteo (temperature et humidite), type de site.
+
+Pas d'ensoleillement, bien qu'il figure dans les CSV : la source ne l'envoie jamais. Une
+variable presente a l'entrainement et absente en production degrade le modele sans qu'aucun
+test n'echoue. Voir `data-contract.md`.
 
 ## Decoupage des donnees
 

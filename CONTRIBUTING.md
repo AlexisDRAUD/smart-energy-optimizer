@@ -51,7 +51,7 @@ l'historique sert de preuve de contribution individuelle.
 
 - La branche principale est protegee, aucun envoi direct.
 - Une approbation minimum.
-- La chaine d'integration doit etre au vert (des qu'elle existe).
+- La chaine d'integration doit etre au vert. Voir `docs/ci.md`.
 - Une demande de fusion qui touche un contrat partage (schemas de l'API, `packages/features`,
   migrations, modeles de `app/db/`) previent explicitement les personnes concernees.
 - Une demande de fusion qui ajoute une migration le dit dans sa description : les autres
@@ -73,8 +73,9 @@ trop grosse, soit personne ne relit. Dans les deux cas, le dire.
 Relire n'est pas chercher la faute. On regarde, dans cet ordre :
 
 - est-ce que ca fait ce que la carte demande
-- est-ce qu'une des regles de `CLAUDE.md` est enfreinte (secrets, couche brute, formules
-  dupliquees, logique metier dans le front)
+- est-ce qu'une des regles des contrats est enfreinte : un secret dans le depot, une
+  ecriture dans la couche brute, une formule dupliquee hors de `packages/features`, de la
+  logique metier dans le front
 - est-ce que c'est lisible par quelqu'un d'autre dans six mois
 
 ### Une exception

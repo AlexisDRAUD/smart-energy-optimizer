@@ -91,8 +91,11 @@ l'emporte : c'est elle qui rend le collecteur et la reprise d'historique rejouab
 
 Clé unique sur `(site_id, measured_at)` : une mesure par site et par instant.
 
-Insertion seulement. Le role applicatif n'a ni `UPDATE` ni `DELETE` sur cette table, par les
-droits et pas par convention.
+Insertion seulement : ni `UPDATE` ni `DELETE` sur cette table.
+
+Cette règle est aujourd'hui tenue **par le code et non par les droits**. Le projet n'utilise
+qu'un seul rôle PostgreSQL, propriétaire de tout. Le passage à des rôles au moindre privilège
+reste à faire, voir `security.md`.
 
 Aucune colonne ne marque les lignes déja transformées, et c'est délibéré. Une telle marque
 obligerait l'ETL à écrire dans une table de l'étage 1, et rejouer une période imposerait
