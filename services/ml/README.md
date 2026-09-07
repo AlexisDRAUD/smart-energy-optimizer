@@ -69,11 +69,15 @@ docker compose up -d api web
 
 ```bash
 # depuis la racine du repo
-# remplace --train-months/--holdout-months selon vos besoins
-docker compose run --rm mlflow python main.py --use-db --train-months 22 --holdout-months 2
+# Si vous avez la base disponible, utilisez --use-db
+# Pour le moment (données locales CSV) :
+docker compose run --rm mlflow python main.py --csv donnees.csv --train-months 22 --holdout-months 2
+
+# ou (chemin explicite) :
+# docker compose run --rm mlflow python main.py --csv services/ml/donnees.csv --train-months 22 --holdout-months 2
 ```
 
-5. Accéder à l'interface MLflow : http://127.0.0.1:5000
+5. Accéder à l'interface MLflow : http://127.0.0.1:5000 (ou http://<host>:5000 si vous exposez le port)
 
 Les artefacts (artéfacts MLflow + sqlite backend store) sont persistés dans le
 volume Docker `mlflow_data`.
@@ -82,5 +86,8 @@ Remarques :
 - Le backend attend la variable d'environnement `DATABASE_URL` ; docker-compose
   injecte la connexion au service `db` par défaut. Pour pointer un MLflow
   distant, définissez `MLFLOW_TRACKING_URI` dans votre `.env`.
-- Pour lancer l'entraînement depuis l'image ML (hors docker compose) utilisez
-  l'image construite par `services/ml/Dockerfile`.
+- Pour exécuter les entraînements depuis Databricks, configurez `MLFLOW_TRACKING_URI`
+  dans votre notebook vers l'URL publique/accessible de ce serveur MLflow (ex: http://<host>:5000).
+- Le modèle loggé conserve ses dépendances dans l'objet enregistré — le backend
+  devra disposer des mêmes packages pour charger les modèles via mlflow.pyfunc
+  (scikit-learn, etc.).
