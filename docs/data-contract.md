@@ -72,7 +72,13 @@ définitivement.
 
 ### `raw_readings`
 
-Les mesures. Volumineuse, partitionnée par mois.
+Les mesures. Volumineuse, non partitionnée.
+
+Le partitionnement mensuel a été retiré : PostgreSQL exige qu'une clé unique porte aussi la
+colonne de partitionnement. Partitionner sur `received_at` obligerait à l'ajouter à la clé, et
+deux appels du collecteur à deux secondes d'écart créeraient deux lignes pour la même mesure.
+Partitionner sur `measured_at` est refusé, c'est une colonne calculée. La déduplication
+l'emporte : c'est elle qui rend le collecteur et la reprise d'historique rejouables.
 
 | Colonne | Type | Note |
 |---|---|---|
@@ -80,9 +86,19 @@ Les mesures. Volumineuse, partitionnée par mois.
 | `received_at` | `timestamptz` | horodatage de reception, pas celui de la mesure |
 | `source` | `text` | `api_current`, `api_backfill`, `csv_import` |
 | `payload` | `jsonb` | la réponse telle quelle |
+| `site_id` | `text` | calculé par PostgreSQL depuis le payload |
+| `measured_at` | `text` | calculé depuis le payload, gardé tel quel, l'ETL l'interprète |
+
+Clé unique sur `(site_id, measured_at)` : une mesure par site et par instant.
 
 Insertion seulement. Le role applicatif n'a ni `UPDATE` ni `DELETE` sur cette table, par les
 droits et pas par convention.
+
+Aucune colonne ne marque les lignes déja transformées, et c'est délibéré. Une telle marque
+obligerait l'ETL à écrire dans une table de l'étage 1, et rejouer une période imposerait
+d'effacer la marque, donc d'enfreindre la règle une seconde fois pour réparer la première.
+L'ETL suit son avancement dans `etl_runs`, sa propre table. Le brut reste une source
+rejouable autant de fois qu'on veut, ce qui est sa seule raison d'exister.
 
 ### `raw_snapshots`
 
@@ -96,8 +112,9 @@ Le référentiel et l'état des capteurs. Petite, non partitionnée, relue souve
 | `payload` | `jsonb` | la réponse telle quelle |
 
 Deux tables brutes et non une seule, parce que ces lignes n'ont ni le meme volume ni la meme
-durée de vie utile. Mélangées, les partitions mensuelles des mesures se rempliraient de
-référentiel relu toutes les minutes.
+durée de vie utile. Mélangées, les mesures se rempliraient de référentiel relu toutes les
+minutes, et la clé unique `(site_id, measured_at)` des mesures n'aurait aucun sens sur des
+lignes de référentiel.
 
 N'y va pas : la moindre transformation, un calcul, un filtrage des valeurs nulles.
 
