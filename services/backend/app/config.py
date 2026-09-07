@@ -45,9 +45,18 @@ class Settings(BaseSettings):
     etl_batch_size: int = 1000
     # Recouvrement de la fenetre de lecture du brut. Chaque passage repart un
     # peu avant la borne du precedent : une ligne inseree juste apres la lecture
-    # n est donc pas manquee. Le rechargement est sans effet, la cle unique de
-    # readings absorbe les doublons.
-    etl_window_overlap_minutes: int = 30
+    # n est donc pas manquee. Il doit couvrir la plus longue transaction
+    # d ecriture, qui dure des millisecondes ici. Deux minutes laissent mille
+    # fois la marge necessaire. Ce n est pas la fenetre de reparation, qui est
+    # plus large et porte sur readings.
+    etl_window_overlap_minutes: int = 2
+
+    # Reparation des valeurs nulles, sur readings.
+    # Profondeur revisitee a chaque passage : une valeur nulle se repare des que
+    # la mesure suivante arrive, donc a la minute d apres.
+    imputation_window_minutes: int = 30
+    # Age au dela duquel le profil d imputation d un site est recalcule.
+    imputation_profile_refresh_hours: int = 24
 
     prediction_refresh_interval_seconds: int = 60
     prediction_horizon_minutes: int = 120

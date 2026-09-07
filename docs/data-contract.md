@@ -148,7 +148,7 @@ sur chaque ligne de mesure.
 | Colonne | Type | Note |
 |---|---|---|
 | `site_id` | `text` | |
-| `measured_at` | `timestamptz` | horodatage de la mesure |
+| `measured_at` | `timestamptz` | horodatage de la mesure, **ramené à la minute** |
 | `consumption_kwh` | `double precision` | valeur utilisée, imputée ou non |
 | `consumption_kwh_raw` | `double precision` | valeur d'origine, nulle si la source l'a envoyée nulle |
 | `is_imputed` | `boolean` | |
@@ -161,6 +161,13 @@ sur chaque ligne de mesure.
 
 Clé unique sur `(site_id, measured_at)`. C'est elle qui rend le job rejouable sans créer de
 doublon.
+
+`measured_at` est ramené à la minute par l'ETL. Les deux endpoints de la source ne rendent pas
+la même forme : l'historique donne des minutes pleines, l'instantané rend l'heure courante à la
+microseconde. Sans cet alignement les deux origines forment deux séries décalées, la cadence
+n'est jamais exactement d'une minute, et tout ce qui en dépend cesse de fonctionner : la
+réparation des valeurs nulles, le backtest de l'ADR du 04/09, et les 1440 points attendus par
+jour de `data_quality_daily`. Le brut garde l'horodatage exact, rien n'est perdu.
 
 `data_quality` et `null_reasons` sont contraints aux valeurs de la source. Une valeur inconnue
 qui apparait est un changement de la source, elle doit faire échouer bruyamment plutot que

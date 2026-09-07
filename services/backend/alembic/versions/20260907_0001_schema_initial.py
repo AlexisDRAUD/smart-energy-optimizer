@@ -117,7 +117,19 @@ def _creer_etage_2_transforme() -> None:
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
+        # Profil d imputation, decide par le backtest de l ADR du 04/09 et
+        # recalcule periodiquement par l ETL. Il choisit la methode de
+        # reparation : interpolation pour un site variable, report pour un site
+        # stable, aucune reparation tant qu il vaut unknown ou NULL. C est ce
+        # qui protege un site dont les donnees se degradent, sans coder aucun
+        # identifiant en dur.
+        sa.Column("imputation_profile", sa.String(), nullable=True),
+        sa.Column("imputation_profile_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint("status IN ('active', 'inactive')", name="ck_sites_status"),
+        sa.CheckConstraint(
+            "imputation_profile IS NULL OR imputation_profile IN ('variable', 'stable', 'unknown')",
+            name="ck_sites_imputation_profile",
+        ),
         sa.PrimaryKeyConstraint("site_id"),
     )
 

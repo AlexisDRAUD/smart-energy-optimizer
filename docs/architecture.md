@@ -38,15 +38,27 @@ Le collecteur et le job de transformation portent leur cadence eux-memes, par un
 dort entre deux passes. Pas de cron, pas d'ordonnanceur. Un processus arrete ne rattrape rien,
 ce qui est coherent avec notre position sur les trous de collecte.
 
-Les deux passent a la minute. Le job de transformation travaille sur une fenetre glissante de
-trente minutes, il revoit donc chaque minute une trentaine de fois. A sept sites et un point
-par minute, une passe relit deux cent dix lignes : la cadence ne se paie pas, et elle est ce
-qui permet de reparer une valeur nulle une minute apres le retour de la mesure.
+Les deux passent a la minute. Le job de transformation porte deux fenetres, qui n ont ni le meme
+role ni la meme largeur.
+
+La premiere lit le brut. Elle repart de la borne du dernier passage reussi, moins deux minutes.
+Ce recouvrement n existe que pour rattraper une ligne dont la transaction n etait pas terminee
+au moment de la lecture ; nos ecritures durent des millisecondes. Une fenetre large ne servirait
+a rien ici et couterait cher : apres une reprise d historique, les 70 000 lignes portent toutes
+le meme horodatage de reception, et une fenetre de trente minutes les relirait entierement a
+chaque passage, soit une trentaine de secondes de travail pour ecrire sept lignes.
+
+La seconde repare les valeurs nulles, sur readings et non sur le brut. Elle fait trente minutes,
+et c est elle qui permet de reparer une valeur nulle une minute apres le retour de la mesure.
+Retransformer une ligne brute ne repare rien, elle redonnerait la meme valeur nulle : la
+reparation regarde les mesures voisines. A sept sites et un point par minute, une passe y revoit
+deux cent dix lignes.
 
 ## Stockage
 
-Un seul PostgreSQL, deux couches. La couche brute en JSONB, insertion seulement, partitionnée
-par mois. La couche transformée en tables typées, avec une cle unique sur site et horodatage
+Un seul PostgreSQL, deux couches. La couche brute en JSONB, insertion seulement, non
+partitionnée : PostgreSQL exige qu'une clé unique porte la colonne de partitionnement, ce qui
+ferait sauter la déduplication sur `(site_id, measured_at)`. Voir `data-contract.md`. La couche transformée en tables typées, avec une cle unique sur site et horodatage
 qui rend le job de transformation rejouable. Le schema n'existe que dans
 `services/backend/alembic/versions/`, applique par Alembic,
 voir `data-contract.md` pour le detail des colonnes.

@@ -34,6 +34,21 @@ class LoadResult:
     skipped_count: int
 
 
+def to_minute(instant: datetime) -> datetime:
+    """Ramene un horodatage a la minute.
+
+    Les deux endpoints de la source ne rendent pas la meme forme : l historique
+    donne des minutes pleines, l instantane rend l heure courante a la
+    microseconde. Sans alignement, les deux origines forment deux series
+    decalees, la cadence n est jamais exactement d une minute, et tout ce qui en
+    depend cesse de fonctionner : la reparation des valeurs nulles, le backtest
+    de l ADR, et les 1440 points attendus par jour de data_quality_daily.
+
+    Le brut garde l horodatage exact : rien n est perdu, tout reste rejouable.
+    """
+    return instant.replace(second=0, microsecond=0)
+
+
 def load_readings(db: Session, readings: Sequence[EnergyReading]) -> LoadResult:
     """Insert readings atomically and ignore only duplicate measurement keys."""
     if not readings:
@@ -43,7 +58,7 @@ def load_readings(db: Session, readings: Sequence[EnergyReading]) -> LoadResult:
     values = [
         {
             "site_id": reading.site_id,
-            "measured_at": reading.timestamp,
+            "measured_at": to_minute(reading.timestamp),
             "consumption_kwh_raw": reading.consumption_kwh,
             "consumption_kwh": reading.consumption_kwh,
             "is_imputed": False,

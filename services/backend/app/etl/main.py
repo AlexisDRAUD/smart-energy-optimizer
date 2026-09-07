@@ -13,7 +13,7 @@ quantite de travail en depend.
 import argparse
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -27,6 +27,7 @@ from app.etl.extract import (
     extract_latest_sensors,
     extract_latest_sites,
 )
+from app.etl.impute import refresh_profiles, repair_readings
 from app.etl.load import load_readings, load_sensor_status, load_sites
 from app.etl.transform import transform_readings
 
@@ -44,6 +45,7 @@ class PassCounts:
     read: int = 0
     written: int = 0
     rejected: int = 0
+    imputed: int = 0
 
 
 def compute_window(db: Session, since: datetime | None) -> tuple[datetime, datetime]:
@@ -125,9 +127,7 @@ def record_run(
     """Ecrit la trace du passage dans etl_runs.
 
     C est cette table qui porte l avancement de l ETL, et c est elle que le
-    bandeau "derniere synchro" du dashboard lit. rows_imputed reste a zero tant
-    que l imputation n est pas branchee : mieux vaut une colonne honnete a zero
-    qu un chiffre invente.
+    bandeau "derniere synchro" du dashboard lit.
     """
     db.add(
         EtlRun(
@@ -137,7 +137,7 @@ def record_run(
             window_end=window_end,
             rows_read=counts.read,
             rows_written=counts.written,
-            rows_imputed=0,
+            rows_imputed=counts.imputed,
             status=status,
             error_message=error_message,
         )
@@ -154,6 +154,12 @@ def run_once(since: datetime | None = None) -> int:
             load_site_directory(db)
             load_sensor_directory(db)
             counts = transform_window(db, window_start, window_end)
+            # La reparation vient apres le chargement : une valeur nulle se
+            # repare des que la mesure suivante est en base, donc au passage qui
+            # vient de l ecrire.
+            refresh_profiles(db)
+            imputed = repair_readings(db, since)
+            counts = replace(counts, imputed=imputed)
             record_run(db, started_at, window_start, window_end, counts, "ok")
     # Large volontairement : un passage rate ne doit ni tuer la boucle ni
     # laisser la trace de l echec de cote.
@@ -163,12 +169,13 @@ def run_once(since: datetime | None = None) -> int:
         return 1
 
     LOGGER.info(
-        "Passage termine: fenetre %s -> %s, lues=%d ecrites=%d rejetees=%d",
+        "Passage termine: fenetre %s -> %s, lues=%d ecrites=%d rejetees=%d reparees=%d",
         window_start.isoformat(timespec="seconds"),
         window_end.isoformat(timespec="seconds"),
         counts.read,
         counts.written,
         counts.rejected,
+        counts.imputed,
     )
     return 0
 
