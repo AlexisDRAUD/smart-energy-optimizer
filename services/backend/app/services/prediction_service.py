@@ -66,6 +66,20 @@ def score_due_predictions(db: Session, scored_at: datetime) -> int:
     return scored
 
 
+def _fallback_prediction_kwh(db: Session, site_id: str) -> float | None:
+    recent = list(
+        db.scalars(
+            select(Reading.consumption_kwh)
+            .where(Reading.site_id == site_id, Reading.consumption_kwh.is_not(None))
+            .order_by(Reading.measured_at.desc())
+            .limit(24)
+        )
+    )
+    if not recent:
+        return None
+    return round(sum(recent) / len(recent), 3)
+
+
 def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
     """Ecrire une prevision par site a l horizon configure, pour son dernier releve."""
     predicted_at = as_utc(now or datetime.now(UTC)).replace(second=0, microsecond=0)
@@ -94,16 +108,10 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
         if existing is not None:
             continue
 
-        recent = list(
-            db.scalars(
-                select(Reading.consumption_kwh)
-                .where(Reading.site_id == site.site_id, Reading.consumption_kwh.is_not(None))
-                .order_by(Reading.measured_at.desc())
-                .limit(24)
-            )
-        )
-        if not recent:
+        predicted_kwh = _fallback_prediction_kwh(db, site.site_id)
+        if predicted_kwh is None:
             continue
+
         db.add(
             Prediction(
                 site_id=site.site_id,
@@ -112,7 +120,7 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
                 horizon_minutes=horizon,
                 model_name=settings.local_model_name,
                 model_version=settings.local_model_version,
-                predicted_kwh=round(sum(recent) / len(recent), 3),
+                predicted_kwh=predicted_kwh,
                 actual_kwh=None,
                 scored_at=None,
             )

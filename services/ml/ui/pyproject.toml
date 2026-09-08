@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enervision-mlflow-ui"
+version = "0.1.0"
+dependencies = ["mlflow==3.16.0"]
+
+[project.entry-points."mlflow.app"]
+enervision = "training_ui:create_app"
+
+[tool.setuptools]
+py-modules = ["training_ui"]

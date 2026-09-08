@@ -18,10 +18,8 @@
 # Voir docs/architecture.md et docs/configuration.md.
 
 x-backend: &backend
-  build:
-    context: .
-    dockerfile: services/backend/Dockerfile
   image: smart-energy-optimizer-backend:local
+  pull_policy: never
   # Tout reglage qui peut differer entre le poste local et la VM passe par ici,
   # et par le .env. Un reglage absent de ce bloc n atteint jamais les conteneurs :
   # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
@@ -35,6 +33,7 @@ x-backend: &backend
     # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
     COOKIE_SECURE: ${COOKIE_SECURE:-false}
     SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:-http://127.0.0.1:8000}
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
     COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-60}
     BACKFILL_DAYS: ${BACKFILL_DAYS:-7}
     ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
@@ -65,6 +64,11 @@ services:
   # laisser toute la pile a l arret.
   migrate:
     <<: *backend
+    # Un seul build pour l image partagee par migrate, api, collector et etl.
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    pull_policy: build
     command: ["./scripts/prepare-database.sh"]
     environment:
       <<: *backend-env
@@ -128,5 +132,73 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  mlflow:
+    build:
+      context: .
+      dockerfile: services/ml/Dockerfile
+    image: smart-energy-optimizer-mlflow:local
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
+      MLFLOW_TRACKING_URI: http://127.0.0.1:5000
+      ML_TRAIN_ON_START: ${ML_TRAIN_ON_START:-1}
+      TRAIN_ARGS: ${TRAIN_ARGS:---holdout-minutes 120}
+      MLFLOW_START_TIMEOUT_SECONDS: ${MLFLOW_START_TIMEOUT_SECONDS:-120}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_REGION: us-east-1
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio_setup:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${MLFLOW_HOST_PORT:-5000}:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2)"]
+      start_period: 120s
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: "no"
+
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  minio_setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: /bin/sh -c
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: >
+      'set -eu;
+      attempts=0;
+      until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1
+      && mc ls local >/dev/null 2>&1; do
+      attempts=$$((attempts + 1));
+      if [ "$$attempts" -ge 60 ]; then echo "MinIO readiness deadline exceeded" >&2; exit 1; fi;
+      sleep 2;
+      done;
+      mc mb --ignore-existing local/mlflow-artifacts'
+    restart: "no"
+
 volumes:
   db_data:
+  mlflow_data:
+  minio_data:

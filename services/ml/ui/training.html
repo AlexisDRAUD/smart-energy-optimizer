@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr"><meta charset="utf-8"><title>MLflow · Entraînement</title>
+<style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:16px}select,input,button{padding:10px;margin:8px}article{border:1px solid #ccc;padding:16px;margin:12px 0}a{color:#174ea6}pre{white-space:pre-wrap}</style>
+<a href="/">← MLflow</a><h1>Entraînement manuel</h1>
+<p>Extension EnerVision dans le serveur MLflow (pas une fonction native Databricks).
+Source : PostgreSQL. Holdout chronologique purgé ; horizon : 120 minutes.</p>
+<form id="form">
+<label>Site <select id="site" required></select></label>
+<label>Estimateur <select id="estimator"><option value="random_forest">Random Forest</option><option value="extra_trees">Extra Trees</option></select></label>
+<label>Holdout (minutes) <input id="holdout" type="number" min="1" max="525600" value="120" required></label>
+<button id="submit">Entraîner</button></form>
+<p>Chaque entraînement crée une version sans modifier l'alias <b>production</b>.
+Après évaluation, attribuez explicitement cet alias à la version souhaitée dans
+<a href="/#/models">Models</a>. Au moins 500 lignes d'entraînement sont nécessaires.</p>
+<p id="message" role="status"></p><h2>Exécutions récentes</h2><section id="jobs"></section>
+<script>
+const csrf="__CSRF_TOKEN__";
+const el=id=>document.getElementById(id);
+async function api(path, options={}) {
+ const response=await fetch("/training/api/"+path,options);
+ const data=await response.json();
+ if(!response.ok) throw Error(data.error||"MLflow indisponible");
+ return data;
+}
+function link(text, url, parent) {
+ const a=document.createElement("a"); a.textContent=text; a.href=url; parent.append(a);
+}
+async function refresh() {
+ try {
+ const jobs=await api("jobs"); el("jobs").replaceChildren();
+ for(const job of jobs) {
+  const article=document.createElement("article");
+  link(job.status+" · "+job.run_id, "/#/experiments/"+job.experiment_id+"/runs/"+job.run_id, article);
+  if(job.error) {const p=document.createElement("p");p.textContent=job.error;article.append(p);}
+  for(const model of job.models) {
+   const p=document.createElement("p");p.textContent=model.site+" · "+JSON.stringify(model.metrics);article.append(p);
+   link("Métriques, modèle et artefacts holdout (CSV + graphique)", "/#/experiments/"+model.experiment_id+"/runs/"+model.run_id, article);
+  }
+  el("jobs").append(article);
+ }
+ } catch(error) {el("message").textContent=error.message;}
+}
+el("form").addEventListener("submit",async event=>{
+ event.preventDefault();el("submit").disabled=true;
+ try {
+ const job=await api("jobs",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},
+ body:JSON.stringify({site_id:el("site").value,estimator:el("estimator").value,holdout_minutes:Number(el("holdout").value)})});
+ el("message").textContent="Entraînement lancé : "+job.run_id; await refresh();
+ }catch(error){el("message").textContent=error.message;}finally{el("submit").disabled=false;}
+});
+api("sites").then(sites=>{
+ for(const site of sites){const option=document.createElement("option");option.value=site;option.textContent=site;el("site").append(option);}
+ if(!sites.length){el("message").textContent="Aucun site avec des données.";el("submit").disabled=true;}
+}).catch(error=>{el("message").textContent=error.message;el("submit").disabled=true;});
+refresh();setInterval(refresh,5000);
+</script></html>

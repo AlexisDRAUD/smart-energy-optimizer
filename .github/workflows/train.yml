@@ -1,0 +1,36 @@
+name: Scheduled ML training
+
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    # Le runner doit pouvoir joindre la base PostgreSQL de l'ecole.
+    # Utiliser un runner self-hosted sur le meme reseau.
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: services/ml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/ml/requirements.txt
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install ../../packages/features
+          pip install -r requirements.txt
+
+      - name: Run training
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          python main.py --use-db --train-months 22 --holdout-months 2

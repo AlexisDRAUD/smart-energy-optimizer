@@ -1,5 +1,5 @@
 # Image separee du backend : dependances lourdes (lightgbm, scikit-learn, mlflow)
-# et cycle de vie different, lancee a la demande et pas en continu.
+# et cycle de vie different. Serveur et entrainement dans le meme conteneur.
 #
 # Le ML lit la base en SQL direct et n ecrit rien dedans. Il n importe donc pas
 # les modeles du backend, seulement packages/features, pour que l entrainement et
@@ -14,6 +14,13 @@ RUN pip install --no-cache-dir /opt/features
 COPY services/ml/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/ml .
+COPY services/ml/main.py services/ml/start.py /app/
+COPY services/ml/ui /opt/training-ui
+RUN pip install --no-cache-dir --no-deps /opt/training-ui
+COPY services/ml/ui/training.html /app/training.html
+ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "ml.train"]
+# No datasets, local virtualenvs or tracking databases in the image.
+COPY services/ml/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
