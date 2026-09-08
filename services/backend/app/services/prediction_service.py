@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import sqrt
 
@@ -88,26 +87,13 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
     horizon = settings.prediction_horizon_minutes
     created = 0
     for site in db.scalars(select(Site).where(Site.status == "active")):
-        feature_row = _build_latest_feature_row(db, site)
-        if feature_row is None:
-            continue
-        features, measured_at = feature_row
-        target_at = measured_at + timedelta(minutes=PREDICTION_HORIZON_MINUTES)
-
-        model_name = settings.local_model_name
-        model_version = settings.local_model_version
-        predicted_kwh: float | None = None
-
-        site_model = _load_site_model(site.site_id)
-        if site_model is not None:
-            prediction_values = site_model.model.predict(features)
-            predicted_kwh = float(prediction_values[0])
-            model_name = site_model.model_name
-            model_version = site_model.model_version
-        else:
-            predicted_kwh = _fallback_prediction_kwh(db, site.site_id)
-
-        if predicted_kwh is None:
+        latest = db.scalar(
+            select(Reading)
+            .where(Reading.site_id == site.site_id)
+            .order_by(Reading.measured_at.desc())
+            .limit(1)
+        )
+        if latest is None:
             continue
 
         target_at = as_utc(latest.measured_at) + timedelta(minutes=horizon)
@@ -122,6 +108,10 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
         if existing is not None:
             continue
 
+        predicted_kwh = _fallback_prediction_kwh(db, site.site_id)
+        if predicted_kwh is None:
+            continue
+
         db.add(
             Prediction(
                 site_id=site.site_id,
@@ -130,7 +120,7 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
                 horizon_minutes=horizon,
                 model_name=settings.local_model_name,
                 model_version=settings.local_model_version,
-                predicted_kwh=round(sum(recent) / len(recent), 3),
+                predicted_kwh=predicted_kwh,
                 actual_kwh=None,
                 scored_at=None,
             )
