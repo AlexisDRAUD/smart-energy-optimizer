@@ -373,6 +373,10 @@ décrits dans `api-contract.md`. Les règles qui le concernent ici :
 - Une fenêtre sans donnée rend une liste vide et un indicateur de complétude, pas une erreur.
 - Tout écran qui affiche des mesures affiche aussi leur complétude. Un graphe qui cache un
   trou de collecte ment.
+- La route du graphique applique LTTB après ses calculs de couverture et de comparaison. Le
+  frontend reçoit des points natifs sélectionnés, avec leurs timestamps et valeurs inchangés ;
+  les nulls et les bornes des segments restent présents. Les métriques ne sont jamais calculées
+  sur la série réduite.
 
 ## Ce qui n'est pas stocké dans la couche transformée
 

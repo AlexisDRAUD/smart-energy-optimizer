@@ -128,7 +128,7 @@ export function DashboardPage() {
                             <div className="card-heading">
                                 <div>
                                     <h2>Consommation réelle et prédite</h2>
-                                    <p>Valeurs natives pour {selectedSite.site_name} · H+2 · {data.chart.model_name} · version {data.chart.model_version}</p>
+                                    <p>Points natifs sélectionnés pour {selectedSite.site_name} · H+2 · {data.chart.model_name} · version {data.chart.model_version}</p>
                                 </div>
                                 <div className="legend">
                                     <span><i className="solid-line" /> Réel</span>
@@ -140,6 +140,7 @@ export function DashboardPage() {
                             <p>Couverture réelle exploitable : {formatPercent(data.chart.reading_coverage.percent)} · {data.chart.reading_coverage.received_minutes}/{data.chart.reading_coverage.expected_minutes} minutes reçues · {data.chart.reading_coverage.missing_minutes} absentes · {data.chart.reading_coverage.null_minutes} nulles.</p>
                             <p>{data.chart.reading_coverage.first_at ? `Relevés disponibles du ${formatDateTime(data.chart.reading_coverage.first_at)} au ${formatDateTime(data.chart.reading_coverage.last_at)}.` : 'Aucun relevé disponible.'}</p>
                             <p>Couverture des prédictions historiques : {formatPercent(data.chart.prediction_coverage.percent)} · {data.chart.prediction_coverage.received_minutes}/{data.chart.prediction_coverage.expected_minutes} minutes.</p>
+                            <p>Affichage LTTB : {data.chart.downsampling.readings.output_points}/{data.chart.downsampling.readings.input_points} points réels · {data.chart.downsampling.historical_predictions.output_points}/{data.chart.downsampling.historical_predictions.input_points} prédictions. Couverture et écart calculés sur les séries complètes.</p>
                             <p>kWh déclarés par la source, sans conversion. Cadence attendue : une minute ; durée physique couverte par une valeur à confirmer avec le contrat Data.</p>
                         </article>
 

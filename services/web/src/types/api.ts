@@ -30,6 +30,12 @@ export type ApiChartComparison = {
     model_version: string
 }
 
+export type ApiChartSamplingStats = {
+    input_points: number
+    output_points: number
+    applied: boolean
+}
+
 export type ApiConsumptionChart = {
     site_id: string
     start: string
@@ -44,12 +50,19 @@ export type ApiConsumptionChart = {
     model_version: string
     max_readings: number
     max_predictions: number
-    readings: ApiReadingPoint[]
-    historical_predictions: ApiPrediction[]
-    future_predictions: ApiPrediction[]
+    readings: (ApiReadingPoint & { segment_start: boolean })[]
+    historical_predictions: (ApiPrediction & { segment_start: boolean })[]
+    future_predictions: (ApiPrediction & { segment_start: boolean })[]
     reading_coverage: ApiChartCoverage
     prediction_coverage: ApiChartCoverage
     future_coverage: ApiChartCoverage
+    downsampling: {
+        algorithm: 'lttb'
+        target_points_per_series: number
+        readings: ApiChartSamplingStats
+        historical_predictions: ApiChartSamplingStats
+        future_predictions: ApiChartSamplingStats
+    }
     last_evaluated: ApiChartComparison | null
 }
 

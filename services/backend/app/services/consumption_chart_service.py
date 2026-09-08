@@ -1,4 +1,4 @@
-"""Bounded, read-only native series for display. No resampling or stored scores changed."""
+"""Bounded display series. Business results use full data; only payloads use LTTB."""
 
 from datetime import datetime, timedelta
 
@@ -11,6 +11,7 @@ from app.config import settings
 from app.core.contract import as_utc, utc_iso
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
+from app.services.lttb import downsample_with_gaps
 
 MAX_DAYS = 30
 HORIZON_MINUTES = 120
@@ -18,6 +19,15 @@ CADENCE_SECONDS = 60
 # Arbitrary second boundaries can touch one extra UTC minute.
 MAX_READINGS = MAX_DAYS * 1440 + 1
 MAX_PREDICTIONS = MAX_READINGS + HORIZON_MINUTES
+DISPLAY_POINTS_PER_SERIES = 600
+
+
+def sampling_stats(source: list[dict], displayed: list[dict]) -> dict[str, int | bool]:
+    return {
+        "input_points": len(source),
+        "output_points": len(displayed),
+        "applied": len(displayed) < len(source),
+    }
 
 
 def coverage(
@@ -118,6 +128,32 @@ def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime)
             }
             break
 
+    # Coverage and comparison use the complete native series. LTTB only shapes the payload.
+    reading_coverage = coverage(points, "measured_at", "consumption_kwh", start, end)
+    prediction_coverage = coverage(historical, "target_at", "predicted_kwh", start, end)
+    future_coverage = coverage(future, "target_at", "predicted_kwh", end, future_end)
+    displayed_points = downsample_with_gaps(
+        points,
+        time_key="measured_at",
+        value_key="consumption_kwh",
+        threshold=DISPLAY_POINTS_PER_SERIES,
+        cadence_seconds=CADENCE_SECONDS,
+    )
+    displayed_historical = downsample_with_gaps(
+        historical,
+        time_key="target_at",
+        value_key="predicted_kwh",
+        threshold=DISPLAY_POINTS_PER_SERIES,
+        cadence_seconds=CADENCE_SECONDS,
+    )
+    displayed_future = downsample_with_gaps(
+        future,
+        time_key="target_at",
+        value_key="predicted_kwh",
+        threshold=DISPLAY_POINTS_PER_SERIES,
+        cadence_seconds=CADENCE_SECONDS,
+    )
+
     return {
         "site_id": site_id,
         "start": utc_iso(start),
@@ -132,11 +168,18 @@ def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime)
         "model_version": settings.local_model_version,
         "max_readings": MAX_READINGS,
         "max_predictions": MAX_PREDICTIONS,
-        "readings": points,
-        "historical_predictions": historical,
-        "future_predictions": future,
-        "reading_coverage": coverage(points, "measured_at", "consumption_kwh", start, end),
-        "prediction_coverage": coverage(historical, "target_at", "predicted_kwh", start, end),
-        "future_coverage": coverage(future, "target_at", "predicted_kwh", end, future_end),
+        "readings": displayed_points,
+        "historical_predictions": displayed_historical,
+        "future_predictions": displayed_future,
+        "reading_coverage": reading_coverage,
+        "prediction_coverage": prediction_coverage,
+        "future_coverage": future_coverage,
+        "downsampling": {
+            "algorithm": "lttb",
+            "target_points_per_series": DISPLAY_POINTS_PER_SERIES,
+            "readings": sampling_stats(points, displayed_points),
+            "historical_predictions": sampling_stats(historical, displayed_historical),
+            "future_predictions": sampling_stats(future, displayed_future),
+        },
         "last_evaluated": last_evaluated,
     }

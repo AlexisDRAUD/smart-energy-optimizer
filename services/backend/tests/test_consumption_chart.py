@@ -95,8 +95,9 @@ def test_complete_window_exceeds_legacy_limits_without_truncation(chart_client, 
     response = fetch(client, count)
     assert response.status_code == 200
     body = response.json()
-    assert len(body["readings"]) == count
-    assert len(body["historical_predictions"]) == count
+    expected_displayed = min(count, service.DISPLAY_POINTS_PER_SERIES)
+    assert len(body["readings"]) == expected_displayed
+    assert len(body["historical_predictions"]) == expected_displayed
     assert len(body["future_predictions"]) == 120
     assert body["readings"][0]["measured_at"] == utc_iso(START)
     assert body["readings"][-1]["measured_at"] == utc_iso(START + timedelta(minutes=count - 1))
@@ -105,6 +106,25 @@ def test_complete_window_exceeds_legacy_limits_without_truncation(chart_client, 
     assert body["future_predictions"][-1]["target_at"] < body["future_end"]
     assert body["reading_coverage"]["expected_minutes"] == count
     assert body["reading_coverage"]["percent"] == 100
+    assert body["downsampling"] == {
+        "algorithm": "lttb",
+        "target_points_per_series": service.DISPLAY_POINTS_PER_SERIES,
+        "readings": {
+            "input_points": count,
+            "output_points": expected_displayed,
+            "applied": count > expected_displayed,
+        },
+        "historical_predictions": {
+            "input_points": count,
+            "output_points": expected_displayed,
+            "applied": count > expected_displayed,
+        },
+        "future_predictions": {
+            "input_points": 120,
+            "output_points": 120,
+            "applied": False,
+        },
+    }
     assert db.scalar(select(func.count()).select_from(Prediction)) == before
     assert (
         db.scalar(
@@ -142,6 +162,8 @@ def test_nulls_absences_native_values_and_exact_pair(chart_client):
     assert body["last_evaluated"]["deviation_percent"] == 10
     assert body["measurement_interval_seconds"] is None
     assert body["unit_basis"] == "source_declared"
+    assert body["downsampling"]["readings"]["input_points"] == 4
+    assert body["downsampling"]["readings"]["applied"] is False
     # Existing hourly sums remain sums, including their null handling.
     legacy = client.get(
         "/api/v1/readings",
@@ -275,6 +297,24 @@ def test_display_does_not_rewrite_stored_evaluation_or_model_metrics(chart_clien
     assert record.actual_kwh == 200
     assert record.absolute_error == 100
     assert record.scored_at == START
+
+
+def test_last_evaluated_pair_uses_full_series_before_downsampling(chart_client, monkeypatch):
+    client, db, _ = chart_client
+    db.execute(insert(Reading), [reading(i, 330) for i in range(701)])
+    db.execute(insert(Prediction), [prediction(i) for i in range(701)])
+
+    def endpoints_only(points, **kwargs):
+        selected = points if len(points) < 2 else [points[0], points[-1]]
+        return [{**point, "segment_start": index == 0} for index, point in enumerate(selected)]
+
+    monkeypatch.setattr(service, "downsample_with_gaps", endpoints_only)
+    body = fetch(client, minutes=701).json()
+
+    assert len(body["readings"]) == 2
+    assert body["reading_coverage"]["received_minutes"] == 701
+    assert body["last_evaluated"]["target_at"] == utc_iso(START + timedelta(minutes=700))
+    assert body["last_evaluated"]["actual_kwh"] == 330
 
 
 def test_main_router_authentication_and_error_contract(client, viewer_headers):

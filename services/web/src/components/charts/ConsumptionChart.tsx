@@ -7,8 +7,8 @@ const HEIGHT = 190
 const LEFT = 60
 
 type ConsumptionChartProps = {
-    points: ApiReadingPoint[]
-    predictions: ApiPrediction[]
+    points: (ApiReadingPoint & { segment_start?: boolean })[]
+    predictions: (ApiPrediction & { segment_start?: boolean })[]
     start: string
     end: string
     cadenceSeconds: number
@@ -28,8 +28,8 @@ export function ConsumptionChart({ points, predictions, start, end, cadenceSecon
     const tickCount = viewWidth < 500 ? 3 : 5
     const startTime = Date.parse(start)
     const endTime = Date.parse(end)
-    const real = chartSegments(points.map((p) => ({ time: Date.parse(p.measured_at), value: p.consumption_kwh })), startTime, endTime, cadenceSeconds)
-    const predicted = chartSegments(predictions.map((p) => ({ time: Date.parse(p.target_at), value: p.predicted_kwh })), startTime, endTime, cadenceSeconds)
+    const real = chartSegments(points.map((p) => ({ time: Date.parse(p.measured_at), value: p.consumption_kwh, segmentStart: p.segment_start })), startTime, endTime, cadenceSeconds)
+    const predicted = chartSegments(predictions.map((p) => ({ time: Date.parse(p.target_at), value: p.predicted_kwh, segmentStart: p.segment_start })), startTime, endTime, cadenceSeconds)
     // Avoid spreading tens of thousands of arguments into Math.max/min.
     let minimum = 0
     let maximum = 1

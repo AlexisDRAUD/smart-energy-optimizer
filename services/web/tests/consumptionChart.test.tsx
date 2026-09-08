@@ -48,10 +48,14 @@ test('empty chart keeps requested domain and future remains outside historical c
     expect(container.querySelector('.prediction-points')).not.toBeInTheDocument()
 })
 
-test('30 days retain all 43200 native samples without pagination or sampling', () => {
-    const points = Array.from({ length: 43200 }, (_, i) => ({ time: base + i * 60000, value: 300 + i % 17 }))
-    const segments = chartSegments(points, base, base + 30 * 86400000, 60)
-    expect(segments).toHaveLength(1)
-    expect(segments[0]).toHaveLength(43200)
-    expect(segments[0][43199]).toBe(points[43199])
+test('server continuity joins spaced LTTB points and keeps actual breaks', () => {
+    const points = [
+        { time: base, value: 340, segmentStart: true },
+        { time: base + 10 * 60000, value: 350, segmentStart: false },
+        { time: base + 20 * 60000, value: 360, segmentStart: true },
+        { time: base + 30 * 60000, value: 370, segmentStart: false },
+    ]
+    const segments = chartSegments(points, base, base + 60 * 60000, 60)
+
+    expect(segments).toEqual([[points[0], points[1]], [points[2], points[3]]])
 })

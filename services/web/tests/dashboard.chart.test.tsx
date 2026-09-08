@@ -20,9 +20,15 @@ const coverage = { expected_minutes: 1440, received_minutes: 2, valid_minutes: 1
 const fixture = (): ApiConsumptionChart => ({
     site_id: 'LYO-01', start, end, future_end: '2026-09-02T14:00:00Z', unit: 'kWh', unit_basis: 'source_declared', measurement_interval_seconds: null,
     cadence_seconds: 60, horizon_minutes: 120, model_name: 'production', model_version: 'prod-v1', max_readings: 43201, max_predictions: 43321,
-    readings: [{ measured_at: start, consumption_kwh: 330, is_imputed: false, data_quality: 'good' }],
-    historical_predictions: [{ site_id: 'LYO-01', target_at: start, predicted_at: '2026-09-01T10:00:00Z', predicted_kwh: 300, actual_kwh: null, absolute_error: null, horizon_minutes: 120, model_version: 'prod-v1' }],
+    readings: [{ measured_at: start, consumption_kwh: 330, is_imputed: false, data_quality: 'good', segment_start: true }],
+    historical_predictions: [{ site_id: 'LYO-01', target_at: start, predicted_at: '2026-09-01T10:00:00Z', predicted_kwh: 300, actual_kwh: null, absolute_error: null, horizon_minutes: 120, model_version: 'prod-v1', segment_start: true }],
     future_predictions: [], reading_coverage: coverage, prediction_coverage: coverage, future_coverage: { ...coverage, expected_minutes: 120, received_minutes: 0 },
+    downsampling: {
+        algorithm: 'lttb', target_points_per_series: 600,
+        readings: { input_points: 1440, output_points: 600, applied: true },
+        historical_predictions: { input_points: 1200, output_points: 600, applied: true },
+        future_predictions: { input_points: 0, output_points: 0, applied: false },
+    },
     last_evaluated: { target_at: start, actual_kwh: 330, predicted_kwh: 300, deviation_percent: 10, horizon_minutes: 120, model_version: 'prod-v1' },
 })
 
@@ -49,6 +55,7 @@ test.each(['day', 'week', 'month'] as const)('historical comparison and predicti
     expect(card).not.toHaveTextContent('999')
     expect(container.querySelector('.prediction-points circle')).toBeInTheDocument()
     expect(screen.getByText(/1438 absentes/)).toBeInTheDocument()
+    expect(screen.getByText(/Affichage LTTB : 600\/1440 points réels · 600\/1200 prédictions/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Prévisions futures H+2' })).toHaveAttribute('data-start', end)
     const [, requestedStart, requestedEnd] = jest.mocked(getConsumptionChart).mock.calls[0]
     expect(Date.parse(requestedEnd) - Date.parse(requestedStart)).toBe(({ day: 1, week: 7, month: 30 }[period]) * 86400000)
@@ -81,7 +88,7 @@ test('slow response from a previous period cannot replace current selection', as
     jest.mocked(useFilters).mockReturnValue(filters('month'))
     jest.mocked(getConsumptionChart).mockResolvedValue({ ...fixture(), model_version: 'current-response' })
     rerender(<DashboardPage />)
-    await screen.findByText(/Valeurs natives.*current-response/)
+    await screen.findByText(/Points natifs sélectionnés.*current-response/)
     await act(async () => { resolveOld({ ...fixture(), model_version: 'obsolete-response' }) })
-    expect(screen.queryByText(/Valeurs natives.*obsolete-response/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Points natifs sélectionnés.*obsolete-response/)).not.toBeInTheDocument()
 })

@@ -298,6 +298,28 @@ class ChartComparison(ContractModel):
     model_version: str
 
 
+class ChartSamplingStats(ContractModel):
+    input_points: int = Field(ge=0)
+    output_points: int = Field(ge=0)
+    applied: bool
+
+
+class ChartReadingPoint(ReadingPoint):
+    segment_start: bool
+
+
+class ChartPredictionPoint(PredictionResponse):
+    segment_start: bool
+
+
+class ChartDownsampling(ContractModel):
+    algorithm: Literal["lttb"]
+    target_points_per_series: int = Field(ge=3)
+    readings: ChartSamplingStats
+    historical_predictions: ChartSamplingStats
+    future_predictions: ChartSamplingStats
+
+
 class ConsumptionChartResponse(ContractModel):
     site_id: str
     start: ISODateTime
@@ -312,10 +334,11 @@ class ConsumptionChartResponse(ContractModel):
     model_version: str
     max_readings: int
     max_predictions: int
-    readings: list[ReadingPoint]
-    historical_predictions: list[PredictionResponse]
-    future_predictions: list[PredictionResponse]
+    readings: list[ChartReadingPoint]
+    historical_predictions: list[ChartPredictionPoint]
+    future_predictions: list[ChartPredictionPoint]
     reading_coverage: ChartCoverage
     prediction_coverage: ChartCoverage
     future_coverage: ChartCoverage
+    downsampling: ChartDownsampling
     last_evaluated: ChartComparison | None

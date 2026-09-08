@@ -70,12 +70,20 @@ n'existe pas actuellement de droits par site.
   existants, et lisent au plus plafond + 1 lignes pour détecter un dépassement.
   Chaque requête de séries a un délai SQL maximal de 5 secondes (local à la
   transaction) ; une expiration produit 503 explicite, sans réponse partielle.
-  Une réponse réussie contient la fenêtre complète ; dépassement de durée ou de
-  volume = 422 explicite. `limit`, `offset`, choix de modèle et autres paramètres
-  supplémentaires sont refusés avec 422. Il n'y a ni pagination ni LTTB sur cette route.
-- `readings` contient les valeurs et timestamps natifs, y compris les nulls, sans
-  somme, arrondi, conversion ou imputation supplémentaire. Les prédictions sont
-  ordonnées par cible. Une minute absente ne devient pas une mesure nulle synthétique.
+  Les calculs utilisent la fenêtre complète ; dépassement de durée ou de volume =
+  422 explicite. `limit`, `offset`, choix de modèle et autres paramètres supplémentaires
+  sont refusés avec 422. Il n'y a pas de pagination sur cette route.
+- `readings` contient les points natifs sélectionnés côté serveur par LTTB, sans somme,
+  arrondi, conversion ou imputation supplémentaire. Les prédictions sont ordonnées par
+  cible. Une minute absente ne devient pas une mesure nulle synthétique. Le plafond cible
+  est de 600 points par série ; les nulls et les bornes de chaque segment sont obligatoires
+  et peuvent faire dépasser ce nombre dans un cas très fragmenté.
+- `downsampling` indique l'algorithme, le plafond cible et les nombres de points avant/après
+  pour le réel, la prédiction historique et le futur. LTTB conserve les timestamps et valeurs
+  des points choisis. Chaque valeur nulle, première/dernière valeur de la fenêtre et point de
+  part et d'autre d'une rupture reste présent. `segment_start` marque le premier point de
+  chaque portion continue : les intervalles créés par LTTB ne sont ainsi pas confondus avec
+  les vrais trous de collecte. Aucun stockage n'est modifié.
 - `reading_coverage`, `prediction_coverage` et `future_coverage` comptent les minutes
   UTC touchées par chaque fenêtre : attendues, reçues, absentes, reçues mais nulles,
   exploitables. `percent` est le pourcentage de minutes exploitables. Les bornes
