@@ -142,7 +142,8 @@ services:
     build:
       context: .
       dockerfile: services/ml/Dockerfile
-    image: smart-energy-optimizer-mlflow:${IMAGE_TAG:-local}
+    image: ${IMAGE_REGISTRY:-}smart-energy-optimizer-mlflow:${IMAGE_TAG:-local}
+    pull_policy: ${IMAGE_PULL_POLICY:-build}
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}@db:5432/${POSTGRES_DB:-seo}
       MLFLOW_TRACKING_URI: http://127.0.0.1:5000

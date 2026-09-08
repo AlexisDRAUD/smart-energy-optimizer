@@ -11,6 +11,7 @@ env:
   NODE_VERSION: "24"
   BACKEND_IMAGE: ghcr.io/alexisdraud/smart-energy-optimizer-backend
   WEB_IMAGE: ghcr.io/alexisdraud/smart-energy-optimizer-web
+  ML_IMAGE: ghcr.io/alexisdraud/smart-energy-optimizer-mlflow
 
 permissions:
   contents: read
@@ -161,6 +162,14 @@ jobs:
           load: true
           tags: ${{ env.WEB_IMAGE }}:${{ github.sha }}
 
+      - name: Build mlflow image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/ml/Dockerfile
+          load: true
+          tags: ${{ env.ML_IMAGE }}:${{ github.sha }}
+
       - name: Prepare Trivy reports directory
         run: mkdir -p trivy-reports
 
@@ -190,6 +199,19 @@ jobs:
           output: trivy-reports/web.json
           exit-code: "0"
 
+      - name: Scan mlflow image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.ML_IMAGE }}:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "false"
+          format: json
+          output: trivy-reports/ml.json
+          exit-code: "0"
+
       - name: Validate Trivy JSON reports
         if: always()
         shell: bash
@@ -197,7 +219,7 @@ jobs:
           set -euo pipefail
           validation_failed=0
 
-          for report in trivy-reports/backend.json trivy-reports/web.json; do
+          for report in trivy-reports/backend.json trivy-reports/web.json trivy-reports/ml.json; do
             if [[ ! -s "$report" ]]; then
               echo "::error title=Missing Trivy report::Expected a non-empty JSON report at ${report}. The corresponding scan may have failed."
               validation_failed=1
@@ -251,7 +273,7 @@ jobs:
             echo "|---|---:|---:|"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for report in trivy-reports/backend.json trivy-reports/web.json; do
+          for report in trivy-reports/backend.json trivy-reports/web.json trivy-reports/ml.json; do
             image="$(basename "$report" .json)"
             high_count="$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$report")"
             critical_count="$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$report")"
@@ -285,6 +307,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # La politique bloquante ne porte que sur les images exposees, backend et
+      # web. L image mlflow est scannee et son rapport publie, mais elle ne
+      # bloque pas : son serveur n ecoute que sur l adresse locale de la VM, et
+      # sa pile scientifique remonte des vulnerabilites qu on ne peut pas
+      # corriger en changeant une ligne. A rendre bloquante une fois le premier
+      # rapport lu et les exceptions ecrites.
       - name: Enforce Trivy security policy
         shell: bash
         run: |
@@ -316,11 +344,14 @@ jobs:
 
           docker tag "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:dev"
           docker tag "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:dev"
+          docker tag "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:dev"
 
           docker save "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:dev" \
             | gzip -1 > docker-images/backend.tar.gz
           docker save "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:dev" \
             | gzip -1 > docker-images/web.tar.gz
+          docker save "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:dev" \
+            | gzip -1 > docker-images/ml.tar.gz
 
       - name: Upload scanned images for publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
@@ -355,6 +386,7 @@ jobs:
           set -euo pipefail
           gzip -dc docker-images/backend.tar.gz | docker load
           gzip -dc docker-images/web.tar.gz | docker load
+          gzip -dc docker-images/ml.tar.gz | docker load
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -374,3 +406,9 @@ jobs:
         run: |
           docker push "${WEB_IMAGE}:${GITHUB_SHA}"
           docker push "${WEB_IMAGE}:dev"
+
+      - name: Push mlflow image
+        shell: bash
+        run: |
+          docker push "${ML_IMAGE}:${GITHUB_SHA}"
+          docker push "${ML_IMAGE}:dev"
