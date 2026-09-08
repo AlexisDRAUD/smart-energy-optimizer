@@ -7,44 +7,44 @@ Projet EnerVision, promotion EADL 2025, groupe 1.
 
 - Collecte une mesure par minute et par site depuis l'API de la source.
 - Stocke la donnee brute sans la transformer, puis produit une couche transformee exploitable.
+- Repare les courtes valeurs manquantes par interpolation, en gardant la valeur d'origine.
 - Predit la consommation et publie la prediction.
 - Leve des alertes sur les depassements de seuil.
-- Propose des actions d'economie chiffrees en kWh.
 
-## Demarrer l'environnement
+## Demarrer
 
 ```bash
 cp .env.example .env
+# remplir POSTGRES_PASSWORD et JWT_SECRET_KEY, verifier SOURCE_API_BASE_URL
 docker compose up
 ```
 
-C'est tout. Les services demarrent dans cet ordre :
+Le detail est dans `docs/setup.md`.
+
+Les services demarrent dans cet ordre :
 
 1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
-2. `migrate`, qui applique les migrations Alembic puis insere les donnees de
-   demonstration, et s'arrete.
-3. `api` et l'ETL ponctuel, qui attendent que `migrate` se termine sans erreur.
-4. `web`, qui attend que l'API soit saine.
+2. `migrate`, qui applique les migrations Alembic, cree les comptes, reprend l'historique de
+   la source, puis s'arrete.
+3. `api`, `collector` et `etl`, qui attendent que `migrate` se termine sans erreur.
+4. `web`, le dashboard, qui attend que l'API soit saine.
 
-`migrate`, `api` et `etl` utilisent la meme image backend avec des commandes
-différentes. L'ETL peut être relancé à la demande avec `docker compose run --rm etl`.
+`migrate`, `api`, `collector` et `etl` utilisent la meme image backend avec des commandes
+differentes.
 
-Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL
-n'est joue par l'image PostgreSQL, et personne ne cree de table a la main.
+Comptez une dizaine de secondes pour la reprise d'historique, puis une trentaine pour la
+premiere transformation, avant que le dashboard affiche quelque chose. Le dashboard repond sur
+`http://localhost`, l'API sur `http://localhost:8080`.
 
-Pour repartir d'une base vide :
+## D'ou viennent les donnees
 
-```bash
-docker compose down -v && docker compose up
-```
+**Aucune donnee n'est inventee au demarrage.** Les sites, les mesures, l'etat des capteurs, les
+predictions et les alertes viennent de la chaine elle-meme : le collecteur interroge la source,
+l'ETL transforme, l'API calcule. La base est vide au premier `docker compose up`, puis se
+remplit toute seule.
 
-Les donnees de demonstration couvrent 24 heures de mesures a la minute sur les trois
-sites `LYO-01`, `GRE-01` et `NAN-01`, plus les etats des capteurs, la qualite, une
-alerte et une execution ETL. Le seed est rejouable : il ne fait rien si les sites
-existent deja. Pour demarrer sans lui, mettre `SEED_DEMO_DATA=0` dans le `.env`.
-
-Le seed cree egalement les comptes suivants avec le mot de passe
-`EnerVisionDemo2026!` :
+La seule chose inseree au demarrage, ce sont les comptes, parce que rien d'autre ne les cree.
+Ils portent le mot de passe de `SEED_USER_PASSWORD`, `EnerVisionDemo2026!` par defaut :
 
 | Nom | E-mail | Role |
 |---|---|---|
@@ -52,16 +52,35 @@ Le seed cree egalement les comptes suivants avec le mot de passe
 | Lucas Bernard | `lucas.bernard@enervision.demo` | `operator` |
 | Marc Legrand | `marc.legrand@enervision.demo` | `viewer` |
 
+Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL n'est joue
+par l'image PostgreSQL, et personne ne cree de table a la main.
+
 ## Documentation
 
 Tout est dans `docs/`.
 
-- `setup.md` : installer, travailler au quotidien, changer le schema. A lire en premier.
-- `architecture.md` : les composants, les images, la cadence, le stockage.
-- `structure.md` : a quoi sert chaque dossier, et surtout ce qui n'a pas a y aller.
-- `data-contract.md` et `api-contract.md` : les contrats, ils font foi.
-- `decisions.md` : le registre des decisions et leurs amendements.
-- `runbook.md` : diagnostiquer quand ca ne marche pas.
-- `quality.md`, `testing.md`, `security.md`, `ml.md` : le reste.
+**Pour demarrer**
+
+- `setup.md` : installer et travailler au quotidien. A lire en premier.
+- `configuration.md` : toutes les variables du `.env`, ce qu'elles font et ce qu'elles coutent.
+- `runbook.md` : verifier que la chaine tourne, amorcer, rejouer, diagnostiquer une panne.
+
+**Les contrats, ils font foi**
+
+- `data-contract.md` : les tables, qui ecrit quoi, ce qui ne s'y met pas.
+- `api-contract.md` : les routes, l'authentification, les codes de reponse.
+
+**Comprendre et contribuer**
+
+- `architecture.md` : les composants, le flux, la cadence, le stockage, la structure du depot.
+- `tests-et-qualite.md` : lancer les tests, les outils, les regles.
+- `ci.md` : la chaine d'integration.
+- `security.md` : ce qui est protege, et ce qui ne l'est pas encore.
+
+**Le reste**
+
+- `deploiement.md` : la VM de l'ecole. Prevu, pas encore fait.
+- `ml.md` : le modele. Hors de ce lot.
+- `adr/` : les decisions structurantes et leurs consequences.
 
 Les regles de contribution sont dans `CONTRIBUTING.md`.
