@@ -19,14 +19,19 @@ def _consumption_value(base_consumption: float, recorded_at: datetime, offset: i
 
 
 def seed_demo_data(db: Session) -> None:
-    """Insere le jeu de demonstration apres qu Alembic a cree le schema.
+    """Decor de demonstration. N est plus appele au demarrage, seuls les tests
+    s en servent (tests/conftest.py).
 
-    Idempotent : si un site existe deja, seuls les comptes de demonstration sont
-    verifies. Les predictions ne sont pas recalculees ici, la boucle de l API s en
-    charge au demarrage puis toutes les minutes.
+    Les sites, mesures, predictions, alertes et indicateurs de qualite inseres
+    ici sont fabriques de toutes pieces. En fonctionnement reel ils viennent du
+    collecteur, de l ETL et de l API : les inserer au demarrage ferait cohabiter
+    de faux sites avec ceux de la source. Le demarrage n appelle donc que
+    seed_users.
+
+    Idempotent : si un site existe deja, seuls les comptes sont verifies.
     """
     if db.scalar(select(Site.site_id).limit(1)) is not None:
-        _ensure_demo_users(db)
+        seed_users(db)
         return
 
     sites = [
@@ -64,7 +69,7 @@ def seed_demo_data(db: Session) -> None:
     db.add_all(sites)
     db.flush()
 
-    _ensure_demo_users(db)
+    seed_users(db)
 
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     history_start = now - timedelta(minutes=1439)
@@ -173,7 +178,13 @@ def seed_demo_data(db: Session) -> None:
     db.commit()
 
 
-def _ensure_demo_users(db: Session) -> None:
+def seed_users(db: Session) -> None:
+    """Cree les comptes de demonstration. Idempotent.
+
+    C est la seule chose que la chaine de donnees ne produit pas : sans compte
+    personne ne peut se connecter. Tout le reste, sites, mesures, predictions,
+    alertes, qualite, est ecrit par le collecteur, l ETL et l API.
+    """
     existing_emails = set(db.scalars(select(User.email)))
     password = get_password_hash(settings.seed_user_password)
     now = datetime.now(UTC)
@@ -199,12 +210,15 @@ def _ensure_demo_users(db: Session) -> None:
 
 
 def main() -> None:
-    """Point d entree en ligne de commande : python -m app.db.seed"""
+    """Point d entree en ligne de commande : python -m app.db.seed
+
+    Ne cree que les comptes. Lance par scripts/prepare-database.sh au demarrage.
+    """
     from app.db.session import SessionLocal
 
     db = SessionLocal()
     try:
-        seed_demo_data(db)
+        seed_users(db)
     finally:
         db.close()
 

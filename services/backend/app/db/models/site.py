@@ -10,7 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 class Site(Base):
     __tablename__ = "sites"
 
-    __table_args__ = (CheckConstraint("status IN ('active', 'inactive')", name="ck_sites_status"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'inactive')", name="ck_sites_status"),
+        CheckConstraint(
+            "imputation_profile IS NULL OR imputation_profile IN ('variable', 'stable', 'unknown')",
+            name="ck_sites_imputation_profile",
+        ),
+    )
 
     site_id: Mapped[str] = mapped_column(String, primary_key=True)
     site_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -20,3 +26,8 @@ class Site(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Decide par le backtest de l ADR du 04/09, recalcule par l ETL.
+    imputation_profile: Mapped[str | None] = mapped_column(String, nullable=True)
+    imputation_profile_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

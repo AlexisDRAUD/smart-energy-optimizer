@@ -26,8 +26,6 @@ une fois reste dans l'historique meme apres avoir été retire du fichier.
 
 ## Contrôles
 
-- Roles au moindre privilege dans la base. Le role qui écrit le brut n'a ni `UPDATE` ni
-  `DELETE`. Le role qui lit pour l'API n'écrit pas.
 - Mots de passe haches par une bibliothèque standard. Aucune cryptographie écrite a la main.
 - Jetons signes a durée de vie courte : une heure pour l'access token présenté a chaque
   appel, sept jours pour le refresh token qui ne sert qu'a le renouveler.
@@ -36,41 +34,19 @@ une fois reste dans l'historique meme apres avoir été retire du fichier.
   le dashboard ne permet donc pas de prolonger une session au dela de l'heure en cours.
 - Les deux jetons portent un champ `typ`. Un refresh token présenté en `Authorization` est
   refusé : sans cette vérification il ouvrirait un accès de sept jours.
-- Reste a faire : la révocation. `logout` efface le cookie du navigateur, mais un refresh
-  token copié ailleurs reste valable jusqu'a son expiration. Il faudrait une table de
-  sessions en base pour le couper vraiment.
 - Dépendances figées par version.
 - Analyse des images et des dépendances dans la chaine d'intégration avec Trivy ; les
   vulnérabilités critiques bloquent leur publication.
 - Aucun identifiant durable stocké côté client au dela du jeton.
 
-## Scan des images avec Trivy
+## Scan des images
 
-La chaine construit et analyse les images backend et web sur chaque pull request
-vers `main` ou `dev`, puis de nouveau sur chaque push vers `dev`. Le scan couvre
-les vulnérabilités connues des paquets du système d'exploitation et des
-bibliothèques applicatives, pour les niveaux `HIGH` et `CRITICAL`.
+Trivy analyse les images backend et web à chaque demande de fusion vers `main` ou `dev`, puis à
+chaque envoi vers `dev`. Une vulnérabilité `CRITICAL` fait échouer le contrôle et empêche toute
+publication ; une `HIGH` est rapportée sans bloquer.
 
-La politique est la suivante :
-
-- `HIGH` : visible dans les logs, le résumé du job et le rapport JSON, sans
-  bloquer la chaine ;
-- `CRITICAL` : échec du contrôle et aucune publication dans GHCR ;
-- vulnérabilité sans correctif : elle reste rapportée et applique la même
-  politique ;
-- aucune exception ou règle `.trivyignore` n'est appliquée par défaut.
-
-Les rapports `backend.json` et `web.json` sont conservés 30 jours dans
-l'artefact `trivy-image-reports-<sha>` du run GitHub Actions. Ils constituent la
-trace détaillée du contrôle. Le résumé du job fournit les nombres de
-vulnérabilités et les logs donnent notamment l'identifiant CVE, le paquet, les
-versions installée et corrigée, et la cible concernée.
-
-Le job exécuté sur les pull requests possède uniquement `contents: read`. Il ne
-référence aucun secret du dépôt, ne demande pas `packages: write` et utilise
-l'événement `pull_request`, qui ne transmet pas les secrets du dépôt aux forks.
-La connexion GHCR et `packages: write` sont isolés dans le job de publication,
-conditionné à un push vers `dev` après la réussite du scan.
+**La politique complète, les artefacts et les permissions sont décrits dans `ci.md`**, qui fait
+foi sur ce point.
 
 ### Limites
 
@@ -131,3 +107,19 @@ tests MLflow (chargement scikit-learn/pyfunc, artefacts HTTP et client S3) et
 43 tests unitaires backend passent ; huit tests PostgreSQL sont ignorés en
 l'absence de base de test dédiée. Ces résultats ne remplacent pas le scan CI
 de l'architecture publiée.
+
+## Ce qui n'est pas fait
+
+Écrit ici plutôt que passé sous silence : une limite assumée vaut mieux qu'une affirmation
+fausse.
+
+- **Un seul rôle PostgreSQL.** Le projet n'utilise que le rôle `seo`, propriétaire de tout.
+  L'objectif reste le moindre privilège : un rôle qui écrit le brut sans `UPDATE` ni `DELETE`,
+  un rôle en lecture seule pour l'API et pour le ML. Aujourd'hui la règle « la couche brute est
+  en insertion seule » est tenue par le code, **pas par les droits**.
+- **Pas de révocation de session.** `logout` efface le cookie du navigateur, mais un refresh
+  token copié ailleurs reste valable jusqu'à son expiration. Il faudrait une table de sessions
+  en base.
+- **Pas de HTTPS**, ni en local ni sur la VM. `COOKIE_SECURE` reste donc à `false`, et le
+  cookie de session circule en clair sur le réseau de l'école.
+- **Pas de limitation de débit** sur le formulaire de connexion.

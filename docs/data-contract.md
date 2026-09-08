@@ -94,7 +94,13 @@ définitivement.
 
 ### `raw_readings`
 
-Les mesures. Volumineuse, partitionnée par mois.
+Les mesures. Volumineuse, non partitionnée.
+
+Le partitionnement mensuel a été retiré : PostgreSQL exige qu'une clé unique porte aussi la
+colonne de partitionnement. Partitionner sur `received_at` obligerait à l'ajouter à la clé, et
+deux appels du collecteur à deux secondes d'écart créeraient deux lignes pour la même mesure.
+Partitionner sur `measured_at` est refusé, c'est une colonne calculée. La déduplication
+l'emporte : c'est elle qui rend le collecteur et la reprise d'historique rejouables.
 
 | Colonne | Type | Note |
 |---|---|---|
@@ -102,9 +108,22 @@ Les mesures. Volumineuse, partitionnée par mois.
 | `received_at` | `timestamptz` | horodatage de reception, pas celui de la mesure |
 | `source` | `text` | `api_current`, `api_backfill`, `csv_import` |
 | `payload` | `jsonb` | la réponse telle quelle |
+| `site_id` | `text` | calculé par PostgreSQL depuis le payload |
+| `measured_at` | `text` | calculé depuis le payload, gardé tel quel, l'ETL l'interprète |
 
-Insertion seulement. Le role applicatif n'a ni `UPDATE` ni `DELETE` sur cette table, par les
-droits et pas par convention.
+Clé unique sur `(site_id, measured_at)` : une mesure par site et par instant.
+
+Insertion seulement : ni `UPDATE` ni `DELETE` sur cette table.
+
+Cette règle est aujourd'hui tenue **par le code et non par les droits**. Le projet n'utilise
+qu'un seul rôle PostgreSQL, propriétaire de tout. Le passage à des rôles au moindre privilège
+reste à faire, voir `security.md`.
+
+Aucune colonne ne marque les lignes déja transformées, et c'est délibéré. Une telle marque
+obligerait l'ETL à écrire dans une table de l'étage 1, et rejouer une période imposerait
+d'effacer la marque, donc d'enfreindre la règle une seconde fois pour réparer la première.
+L'ETL suit son avancement dans `etl_runs`, sa propre table. Le brut reste une source
+rejouable autant de fois qu'on veut, ce qui est sa seule raison d'exister.
 
 ### `raw_snapshots`
 
@@ -118,8 +137,9 @@ Le référentiel et l'état des capteurs. Petite, non partitionnée, relue souve
 | `payload` | `jsonb` | la réponse telle quelle |
 
 Deux tables brutes et non une seule, parce que ces lignes n'ont ni le meme volume ni la meme
-durée de vie utile. Mélangées, les partitions mensuelles des mesures se rempliraient de
-référentiel relu toutes les minutes.
+durée de vie utile. Mélangées, les mesures se rempliraient de référentiel relu toutes les
+minutes, et la clé unique `(site_id, measured_at)` des mesures n'aurait aucun sens sur des
+lignes de référentiel.
 
 N'y va pas : la moindre transformation, un calcul, un filtrage des valeurs nulles.
 
@@ -153,7 +173,7 @@ sur chaque ligne de mesure.
 | Colonne | Type | Note |
 |---|---|---|
 | `site_id` | `text` | |
-| `measured_at` | `timestamptz` | horodatage de la mesure |
+| `measured_at` | `timestamptz` | horodatage de la mesure, **ramené à la minute** |
 | `consumption_kwh` | `double precision` | valeur utilisée, imputée ou non |
 | `consumption_kwh_raw` | `double precision` | valeur d'origine, nulle si la source l'a envoyée nulle |
 | `is_imputed` | `boolean` | |
@@ -167,6 +187,13 @@ sur chaque ligne de mesure.
 Clé unique sur `(site_id, measured_at)`. C'est elle qui rend le job rejouable sans créer de
 doublon.
 
+`measured_at` est ramené à la minute par l'ETL. Les deux endpoints de la source ne rendent pas
+la même forme : l'historique donne des minutes pleines, l'instantané rend l'heure courante à la
+microseconde. Sans cet alignement les deux origines forment deux séries décalées, la cadence
+n'est jamais exactement d'une minute, et tout ce qui en dépend cesse de fonctionner : la
+réparation des valeurs nulles, le backtest de l'ADR du 04/09, et les 1440 points attendus par
+jour de `data_quality_daily`. Le brut garde l'horodatage exact, rien n'est perdu.
+
 `data_quality` et `null_reasons` sont contraints aux valeurs de la source. Une valeur inconnue
 qui apparait est un changement de la source, elle doit faire échouer bruyamment plutot que
 s'écrire en silence.
@@ -178,6 +205,10 @@ job, alors que la règle du projet est que les contrôles de qualité marquent a
 
 L'historique de santé des capteurs. Sans historisation, la page Qualité ne peut montrer que
 l'instant présent, ce qui ne permet aucun diagnostic.
+
+L'ETL y écrit **tous** les instantanés `api_sensors` de sa fenêtre, chacun sous son propre
+`received_at`. Le dernier connu ne suffit pas : un capteur tombé puis reparti entre deux passes
+ne laisserait aucune trace, et rejouer la période ne la ferait pas réapparaitre.
 
 | Colonne | Type | Note |
 |---|---|---|
@@ -213,11 +244,16 @@ Un résumé par site et par jour, écrit a la fin de chaque passe pour les jours
 graphe du dashboard le lit directement, il ne rescanne pas des millions de lignes a chaque
 affichage.
 
+Les jours touchés se lisent sur `measured_at`, pas sur la fenêtre de réception : une reprise
+d'historique écrit des mesures bien plus anciennes que le moment ou elles arrivent. S'y
+ajoutent les jours de la fenêtre de réparation, qui remplit des valeurs sans qu'aucune mesure
+nouvelle n'arrive.
+
 | Colonne | Type | Note |
 |---|---|---|
 | `site_id` | `text` | |
 | `day` | `date` | jour en temps universel |
-| `expected_points` | `integer` | 1440 pour une journée complète au pas d'une minute |
+| `expected_points` | `integer` | 1440 pour une journée révolue, au pas d'une minute |
 | `received_points` | `integer` | |
 | `missing_points` | `integer` | attendus moins recus, c'est le trou de collecte |
 | `null_points` | `integer` | recus mais sans valeur de consommation |
@@ -225,6 +261,18 @@ affichage.
 | `computed_at` | `timestamptz` | |
 
 Clé unique sur `(site_id, day)`.
+
+Le jour en cours n'attend que les minutes déja écoulées. En attendre 1440 des minuit ferait
+passer la journée qui n'a pas encore eu lieu pour un trou de collecte, et le dashboard
+signalerait des données incomplètes jusqu'au soir.
+
+Un site du référentiel qui n'a rien remonté de la journée recoit quand meme sa ligne, a zéro
+recu. C'est le seul endroit ou ce trou-la se lit : sans ligne, le site disparait simplement du
+graphe. Un site présent dans les mesures mais absent du référentiel est résumé lui aussi,
+`readings` n'ayant pas de clé étrangère vers `sites`.
+
+Le calcul est un dénombrement de `readings`, il ne dépend d'aucun état : repasser sur un jour
+déja résumé récrit exactement les memes chiffres.
 
 N'y va pas : le calcul des variables d'entrée du modèle, il est dans `packages/features`.
 
