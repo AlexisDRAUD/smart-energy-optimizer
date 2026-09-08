@@ -294,18 +294,24 @@ nav { display: grid; gap: 7px; }
     align-items: center;
     justify-content: center;
     gap: 9px;
-    height: 49px;
-    border: 0;
-    border-radius: 10px;
-    color: white;
-    background: var(--accent);
-    font-size: 14px;
+    min-height: 34px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--accent);
+    background: var(--surface);
+    font-size: 12px;
     font-weight: 700;
     transition: background .2s;
 }
 
-.refresh-button:hover { background: #1768dc; }
+.refresh-button:hover { border-color: var(--accent); background: #edf5ff; }
+.refresh-button:disabled { cursor: wait; opacity: .55; }
 .refresh-button svg { width: 16px; }
+
+.sync-control { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 49px; }
+.sync-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.sync-status.error { color: #b72f43; }
 
 /* ============================================================
    Tableaux

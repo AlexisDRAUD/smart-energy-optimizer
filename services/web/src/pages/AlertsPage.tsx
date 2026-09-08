@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { getAlerts } from '../api/alerts'
 import { ErrorBarChart, type AlertDay } from '../components/charts/ErrorBarChart'
 import { DataTable, type Column } from '../components/common/DataTable'
@@ -7,6 +7,7 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiAlert, Severity } from '../types/api'
 import { formatDateTime, formatDay, formatNumber, formatSeverity } from '../utils/formatters'
 
@@ -41,29 +42,20 @@ function countBySeverity(alerts: ApiAlert[], ...severities: Severity[]) {
 
 export function AlertsPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [alerts, setAlerts] = useState<ApiAlert[]>([])
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-
     // Une seule requête, donc une seule source pour les compteurs, le
     // graphique et le tableau. /alerts/summary ne sait pas filtrer par site,
     // ses chiffres porteraient sur tout le parc.
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        setIsLoading(true)
-        setError(null)
-        try {
-            setAlerts(await getAlerts({ siteId, start: periodStart(period) }))
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger les alertes.')
-        } finally {
-            setIsLoading(false)
-        }
+    const fetchAlerts = useCallback(async (signal: AbortSignal) => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        return getAlerts({ siteId, start: periodStart(period) }, signal)
     }, [period, siteId])
-
-    useEffect(() => {
-        void load()
-    }, [load])
+    const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchAlerts,
+        errorMessage: 'Impossible de charger les alertes.',
+    })
+    const alerts = data ?? []
 
     const chartData = useMemo(() => alertsByDay(alerts), [alerts])
 
@@ -73,14 +65,17 @@ export function AlertsPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={load}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
+                isLoading={sitesLoading || isInitialLoading}
                 error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             <section className="card-grid">

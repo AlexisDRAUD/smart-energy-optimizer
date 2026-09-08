@@ -7,10 +7,10 @@ export type AlertsFilters = {
     limit?: number
 }
 
-export async function getAlerts({ siteId, start, limit = 100 }: AlertsFilters = {}) {
+export async function getAlerts({ siteId, start, limit = 100 }: AlertsFilters = {}, signal?: AbortSignal) {
     const params = new URLSearchParams({ limit: String(limit) })
     if (siteId) params.set('site_id', siteId)
     if (start) params.set('start', start)
-    const response = await apiRequest<{ items: ApiAlert[] }>(`/api/v1/alerts?${params}`)
+    const response = await apiRequest<{ items: ApiAlert[] }>(`/api/v1/alerts?${params}`, { signal })
     return response.items
 }

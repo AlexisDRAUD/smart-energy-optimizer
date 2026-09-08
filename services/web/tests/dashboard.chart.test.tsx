@@ -60,6 +60,7 @@ test.each(['day', 'week', 'month'] as const)('historical comparison and predicti
     expect(screen.getByText('600/1440')).toBeInTheDocument()
     expect(screen.getByText('600/1200')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Prévisions futures H+2' })).toHaveAttribute('data-start', end)
+    expect(jest.mocked(getAlerts).mock.calls[0][0]).toMatchObject({ siteId: 'LYO-01' })
     const [, requestedStart, requestedEnd] = jest.mocked(getConsumptionChart).mock.calls[0]
     expect(Date.parse(requestedEnd) - Date.parse(requestedStart)).toBe(({ day: 1, week: 7, month: 30 }[period]) * 86400000)
 })

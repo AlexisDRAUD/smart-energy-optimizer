@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import { getAlerts } from '../api/alerts'
 import { getOverview } from '../api/dashboard'
 import { getConsumptionChart } from '../api/consumptionChart'
 import { getLatestReading } from '../api/sites'
+import { ApiError } from '../api/client'
 import { ConsumptionChart } from '../components/charts/ConsumptionChart'
 import { DataDetails } from '../components/charts/DataDetails'
 import { DataTable, type Column } from '../components/common/DataTable'
@@ -11,6 +12,7 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { chartWindow } from '../utils/consumptionChart'
 import { useFilters } from '../hooks/useFilters'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiAlert, ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
 import { formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
@@ -23,39 +25,27 @@ type DashboardData = {
 
 export function DashboardPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [data, setData] = useState<DashboardData | null>(null)
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-    const requestId = useRef(0)
-
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        const id = ++requestId.current
-        setIsLoading(true)
-        setError(null)
-        setData(null)
-        try {
-            const { start, end } = chartWindow(period)
-            const [overview, alerts, chart] = await Promise.all([
-                getOverview(),
-                getAlerts({ start }),
-                getConsumptionChart(siteId, start, end),
-            ])
-            // L'API répond 404 quand rien n'existe encore pour ce site. Ce
-            // n'est pas une panne, la page doit rester affichable.
-            const latest = await getLatestReading(siteId).catch(() => null)
-            if (id === requestId.current) setData({ overview, alerts, latest, chart })
-        } catch (cause) {
-            if (id === requestId.current) setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
-        } finally {
-            if (id === requestId.current) setIsLoading(false)
-        }
+    const fetchDashboard = useCallback(async (signal: AbortSignal): Promise<DashboardData> => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        const { start, end } = chartWindow(period)
+        const latestRequest = getLatestReading(siteId, signal).catch((cause: unknown) => {
+            if (cause instanceof ApiError && cause.status === 404) return null
+            throw cause
+        })
+        const [overview, alerts, chart, latest] = await Promise.all([
+            getOverview(signal),
+            getAlerts({ siteId, start }, signal),
+            getConsumptionChart(siteId, start, end, signal),
+            latestRequest,
+        ])
+        return { overview, alerts, latest, chart }
     }, [period, siteId])
-
-    useEffect(() => {
-        void load()
-        return () => { ++requestId.current }
-    }, [load])
+    const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchDashboard,
+        errorMessage: 'Impossible de charger le tableau de bord.',
+    })
 
     const selectedSite = sites.find((site) => site.site_id === siteId)
     const currentValue = data?.latest?.consumption_kwh ?? null
@@ -80,14 +70,17 @@ export function DashboardPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={() => { void reloadSites(); void load() }}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
+                isLoading={sitesLoading || isInitialLoading}
                 error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             {data && selectedSite && (
