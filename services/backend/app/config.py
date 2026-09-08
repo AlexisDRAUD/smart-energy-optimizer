@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     prediction_horizon_minutes: int = 120
     local_model_name: str = "local-moving-average"
     local_model_version: str = "local-1"
+    mlflow_tracking_uri: str | None = None
+    mlflow_model_name_prefix: str = "EnerVision_RF_Predictor"
+    mlflow_model_alias: str = "production"
 
 
 settings = Settings()

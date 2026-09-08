@@ -14,6 +14,9 @@ RUN npm run build
 
 FROM nginx:1.30-alpine3.24 AS production
 
+# Correctifs libuuid signales dans le rapport Trivy (Alpine 3.24).
+RUN apk add --no-cache 'libuuid>=2.42.3-r1'
+
 ENV API_UPSTREAM=http://api:8080
 ENV NGINX_ENVSUBST_FILTER=API_UPSTREAM
 
