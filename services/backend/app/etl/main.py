@@ -24,8 +24,8 @@ from app.db.models.quality import EtlRun
 from app.db.session import SessionLocal
 from app.etl.extract import (
     extract_from_raw_readings,
-    extract_latest_sensors,
     extract_latest_sites,
+    extract_sensor_snapshots,
 )
 from app.etl.impute import refresh_profiles, repair_readings, repair_window_start
 from app.etl.load import load_readings, load_sensor_status, load_sites
@@ -80,14 +80,45 @@ def load_site_directory(db: Session) -> None:
     LOGGER.info("Referentiel: %d site(s) a jour", load_sites(db, sites))
 
 
-def load_sensor_directory(db: Session) -> None:
-    """Historise l etat des capteurs depuis le dernier instantane brut."""
-    snapshot = extract_latest_sensors(db)
-    if snapshot is None:
-        LOGGER.info("Aucun instantane de capteurs en base, historique inchange")
+def load_sensor_directory(db: Session, window_start: datetime, window_end: datetime) -> None:
+    """Historise l etat des capteurs de tous les instantanes de la fenetre.
+
+    Tous, et non le dernier : sensor_status est un historique, pas un etat
+    courant. Ne traiter que le dernier instantane perdrait definitivement ceux
+    arrives entre deux passages, et il en arrive des que l ETL prend du retard
+    sur le collecteur.
+
+    Chaque instantane est historise sous son propre horodatage de reception, si
+    bien que rejouer la fenetre redonne exactement le meme historique.
+    """
+    inserted = 0
+    snapshot_count = 0
+    after_id = 0
+
+    while True:
+        snapshots = extract_sensor_snapshots(
+            db, window_start, window_end, after_id, settings.etl_batch_size
+        )
+        if not snapshots:
+            break
+
+        for snapshot in snapshots:
+            inserted += load_sensor_status(db, snapshot.received_at, snapshot.payload)
+
+        snapshot_count += len(snapshots)
+        after_id = snapshots[-1].id
+
+        if len(snapshots) < settings.etl_batch_size:
+            break
+
+    if snapshot_count == 0:
+        LOGGER.info("Aucun instantane de capteurs dans la fenetre, historique inchange")
         return
-    inserted = load_sensor_status(db, snapshot.received_at, snapshot.payload)
-    LOGGER.info("Capteurs: %d observation(s) ajoutee(s)", inserted)
+    LOGGER.info(
+        "Capteurs: %d observation(s) ajoutee(s) depuis %d instantane(s)",
+        inserted,
+        snapshot_count,
+    )
 
 
 def transform_window(
@@ -163,7 +194,7 @@ def run_once(since: datetime | None = None) -> int:
         with SessionLocal() as db:
             window_start, window_end = compute_window(db, since)
             load_site_directory(db)
-            load_sensor_directory(db)
+            load_sensor_directory(db, window_start, window_end)
             counts, days = transform_window(db, window_start, window_end)
             # La reparation vient apres le chargement : une valeur nulle se
             # repare des que la mesure suivante est en base, donc au passage qui

@@ -96,8 +96,9 @@ def _create_stage_1_raw() -> None:
             name="ck_raw_snapshots_source",
         ),
     )
-    # L ETL relit le dernier instantane de chaque source a chaque passage.
-    # Sans cet index, la table entiere serait parcourue a chaque fois.
+    # L ETL relit le dernier referentiel de sites, et tous les instantanes de
+    # capteurs de sa fenetre, a chaque passage. Sans cet index, la table entiere
+    # serait parcourue a chaque fois.
     op.create_index(
         "ix_raw_snapshots_source_received_at",
         "raw_snapshots",

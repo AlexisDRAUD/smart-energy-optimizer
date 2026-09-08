@@ -73,30 +73,57 @@ def extract_from_raw_readings(
 class SnapshotRow:
     """Un instantane de referentiel lu dans raw_snapshots."""
 
+    id: int
     received_at: datetime
     payload: Any
 
 
-def extract_latest_sensors(db: Session) -> SnapshotRow | None:
-    """Rend le dernier etat des capteurs recu, ou None si aucun n est arrive.
+def extract_sensor_snapshots(
+    db: Session,
+    window_start: datetime,
+    window_end: datetime,
+    after_id: int,
+    limit: int,
+) -> list[SnapshotRow]:
+    """Rend un lot d instantanes de capteurs recus dans la fenetre demandee.
 
-    L horodatage de reception est rendu avec le contenu : c est lui qui sert
+    Tous les instantanes de la fenetre, et non le dernier connu. sensor_status
+    est un historique : ne charger que le dernier perdrait definitivement tous
+    ceux arrives entre deux passages. L historique se trouerait des que l ETL
+    prend du retard sur le collecteur, ce qu un simple arret suffit a produire,
+    et le rejeu d une periode ne redonnerait pas ce qui s y est passe.
+
+    L horodatage de reception accompagne chaque instantane : c est lui qui sert
     d observed_at a l etage 2. Relire deux fois le meme instantane produit donc
     les memes lignes, que la cle unique de sensor_status ignore.
+
+    La pagination se fait par identifiant croissant, comme pour les mesures :
+    apres un long arret, la fenetre porte sur des milliers d instantanes, qu il
+    ne faut pas charger d un bloc.
     """
-    row = db.execute(
+    result = db.execute(
         text(
-            "SELECT received_at, payload FROM raw_snapshots "
+            "SELECT id, received_at, payload FROM raw_snapshots "
             "WHERE source = 'api_sensors' "
-            "ORDER BY received_at DESC, id DESC "
-            "LIMIT 1"
-        )
-    ).first()
-    if row is None:
-        return None
-    if not isinstance(row.payload, dict):
-        raise ValueError("Un instantane api_sensors doit contenir un objet JSON")
-    return SnapshotRow(received_at=row.received_at, payload=row.payload)
+            "AND received_at >= :window_start "
+            "AND received_at < :window_end "
+            "AND id > :after_id "
+            "ORDER BY id "
+            "LIMIT :limit"
+        ),
+        {
+            "window_start": window_start,
+            "window_end": window_end,
+            "after_id": after_id,
+            "limit": limit,
+        },
+    )
+    snapshots = []
+    for row in result:
+        if not isinstance(row.payload, dict):
+            raise ValueError("Un instantane api_sensors doit contenir un objet JSON")
+        snapshots.append(SnapshotRow(id=row.id, received_at=row.received_at, payload=row.payload))
+    return snapshots
 
 
 def extract_latest_sites(db: Session) -> list[Any]:

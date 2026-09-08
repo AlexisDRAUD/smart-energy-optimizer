@@ -184,6 +184,10 @@ job, alors que la règle du projet est que les contrôles de qualité marquent a
 L'historique de santé des capteurs. Sans historisation, la page Qualité ne peut montrer que
 l'instant présent, ce qui ne permet aucun diagnostic.
 
+L'ETL y écrit **tous** les instantanés `api_sensors` de sa fenêtre, chacun sous son propre
+`received_at`. Le dernier connu ne suffit pas : un capteur tombé puis reparti entre deux passes
+ne laisserait aucune trace, et rejouer la période ne la ferait pas réapparaitre.
+
 | Colonne | Type | Note |
 |---|---|---|
 | `site_id` | `text` | |

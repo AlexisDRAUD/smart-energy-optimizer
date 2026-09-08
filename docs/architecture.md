@@ -70,7 +70,7 @@ Un site injoignable est journalisé et sauté : les autres sont quand même coll
 ### Ce que fait un passage de l'ETL
 
 1. met `sites` à jour depuis le dernier instantané `api_sites` ;
-2. historise `sensor_status` depuis le dernier instantané `api_sensors` ;
+2. historise `sensor_status` depuis **tous** les instantanés `api_sensors` de sa fenêtre ;
 3. transforme les mesures brutes de sa fenêtre et les charge dans `readings` ;
 4. répare les valeurs nulles refermées ;
 5. recalcule `data_quality_daily` pour les jours qu'il vient de toucher ;
@@ -90,6 +90,12 @@ terminée au moment de la lecture. Une fenêtre large ne servirait à rien et co
 après une reprise d'historique, les 70 000 lignes portent toutes le même horodatage de
 réception, et trente minutes de fenêtre les reliraient entièrement à chaque passage, soit une
 trentaine de secondes de travail pour écrire sept lignes.
+
+Elle porte sur les deux tables brutes, mesures et instantanés. Ne lire que le dernier
+instantané de capteurs perdrait définitivement ceux arrivés entre deux passes : `sensor_status`
+est un historique, et il se trouerait dès que l'ETL prend du retard sur le collecteur, ce qu'un
+simple arrêt suffit à produire. Chaque instantané est historisé sous son propre `received_at`,
+donc rejouer une fenêtre redonne exactement le même historique.
 
 **La fenêtre de réparation** fait trente minutes et porte sur `readings`, pas sur le brut.
 C'est elle qui permet de réparer une valeur nulle une minute après le retour de la mesure.
