@@ -1,5 +1,5 @@
 import type { DotColor } from '../components/common/MetricCard'
-import type { DataQuality, Severity } from '../types/api'
+import type { ApiAlert, DataQuality, Severity } from '../types/api'
 
 export function formatEnergy(value: number | null | undefined) {
     return value === null || value === undefined
@@ -38,6 +38,10 @@ export function formatQuality(quality: DataQuality) {
 
 export function formatSeverity(severity: Severity) {
     return { low: 'Faible', medium: 'Moyenne', high: 'Haute', critical: 'Critique' }[severity]
+}
+
+export function formatAlertOrigin(origin: ApiAlert['origin']) {
+    return origin === 'source' ? 'Source collectée' : 'Règle interne — non attribuée au ML'
 }
 
 /** Couleur de la pastille associée à une gravité. */

@@ -389,6 +389,7 @@ td:first-child { font-weight: 700; }
 .alert-item strong, .recommendation strong { display: block; font-size: 12px; }
 .alert-item p, .recommendation p { margin: 8px 0; color: var(--muted); font-size: 11px; }
 .alert-item small { color: var(--muted); font-size: 10px; }
+.alert-origin-note { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 .recommendation { display: flex; gap: 13px; margin-bottom: 18px; }
 

@@ -246,8 +246,11 @@ défaut, les alertes ouvertes des sept derniers jours, les plus récentes d'abor
 
 Une alerte rend `id`, `site_id`, `detected_at`, `type`, `severity`, `message`, `value`,
 `threshold_value`, `status`, `origin`, `acknowledged_at`. `origin` vaut `source` lorsque
-l'alerte a été collectée puis matérialisée par l'ETL, et `internal` lorsqu'elle a été émise par
-EnerVision. Les valeurs et seuils restent ceux de l'émetteur ; le front ne les recalcule pas.
+l'alerte a été collectée puis matérialisée par l'ETL, et `internal` pour une règle interne
+dont le producteur n'est pas qualifié plus précisément par le contrat actuel. Le frontend
+affiche cette dernière comme « Règle interne — non attribuée au ML » : aucune alerte ne doit
+être présentée comme issue d'un modèle ML validé sans provenance et version explicites.
+Les valeurs et seuils restent ceux de l'émetteur ; le front ne les recalcule pas.
 
 `summary` rend les compteurs par sévérité et la répartition par jour sur la période demandée.
 C'est ce qui alimente les trois compteurs et le graphe de la maquette Alertes, en un appel

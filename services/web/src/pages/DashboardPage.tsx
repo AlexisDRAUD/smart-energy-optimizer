@@ -14,7 +14,7 @@ import { chartWindow } from '../utils/consumptionChart'
 import { useFilters } from '../hooks/useFilters'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiAlert, ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
-import { formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
+import { formatAlertOrigin, formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
 type DashboardData = {
     overview: ApiOverview
@@ -151,7 +151,7 @@ export function DashboardPage() {
                                             <span className={`metric-dot ${severityDot(alert.severity)}`} />
                                             <div>
                                                 <strong>{alert.message}</strong>
-                                                <small>{formatDateTime(alert.detected_at)}</small>
+                                                <small>{formatAlertOrigin(alert.origin)} · {formatDateTime(alert.detected_at)}</small>
                                             </div>
                                         </div>
                                     ))

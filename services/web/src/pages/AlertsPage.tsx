@@ -9,7 +9,7 @@ import { periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiAlert, Severity } from '../types/api'
-import { formatDateTime, formatDay, formatNumber, formatSeverity } from '../utils/formatters'
+import { formatAlertOrigin, formatDateTime, formatDay, formatNumber, formatSeverity } from '../utils/formatters'
 
 const statusLabels = { open: 'Ouverte', acknowledged: 'Acquittée', closed: 'Fermée' }
 
@@ -21,7 +21,7 @@ const columns: Column<ApiAlert>[] = [
     { header: 'Valeur', cell: (alert) => formatNumber(alert.value) },
     { header: 'Seuil', cell: (alert) => formatNumber(alert.threshold_value) },
     { header: 'État', cell: (alert) => statusLabels[alert.status] },
-    { header: 'Origine', cell: (alert) => alert.origin === 'source' ? 'Source collectée' : 'EnerVision' },
+    { header: 'Origine', cell: (alert) => formatAlertOrigin(alert.origin) },
 ]
 
 /** Une barre par jour où au moins une alerte a été détectée. */
@@ -77,6 +77,10 @@ export function AlertsPage() {
                 error={sitesError ?? error}
                 onRetry={() => { void reloadSites(); void refresh() }}
             />
+
+            <p className="alert-origin-note">
+                « Source collectée » identifie les alertes reçues par le collector. « Règle interne — non attribuée au ML » n’est pas présentée comme une alerte d’un modèle ML validé.
+            </p>
 
             <section className="card-grid">
                 <MetricCard label="Alertes ouvertes" value={alerts.length} dot="blue" />
