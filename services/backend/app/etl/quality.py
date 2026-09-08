@@ -49,8 +49,8 @@ def expected_points(day: date, now: datetime) -> int:
         return MINUTES_PER_DAY
     if day > today:
         return 0
-    moment = now.astimezone(UTC)
-    return min(moment.hour * 60 + moment.minute + 1, MINUTES_PER_DAY)
+    computed_at = now.astimezone(UTC)
+    return min(computed_at.hour * 60 + computed_at.minute + 1, MINUTES_PER_DAY)
 
 
 def _counts_for_day(db: Session, day: date) -> dict[str, tuple[int, int, int]]:
@@ -84,13 +84,13 @@ def compute_daily_quality(db: Session, days: Iterable[date], now: datetime | Non
     les mesures est resume lui aussi, readings n ayant pas de cle etrangere
     vers sites.
     """
-    moment = now or datetime.now(UTC)
+    computed_at = now or datetime.now(UTC)
     known_sites = set(db.scalars(select(Site.site_id)))
 
     values = []
     for day in sorted(set(days)):
         counts = _counts_for_day(db, day)
-        expected = expected_points(day, moment)
+        expected = expected_points(day, computed_at)
         for site_id in sorted(known_sites | counts.keys()):
             received, nulls, imputed = counts.get(site_id, (0, 0, 0))
             values.append(
@@ -104,7 +104,7 @@ def compute_daily_quality(db: Session, days: Iterable[date], now: datetime | Non
                     "missing_points": max(expected - received, 0),
                     "null_points": nulls,
                     "imputed_points": imputed,
-                    "computed_at": moment,
+                    "computed_at": computed_at,
                 }
             )
 

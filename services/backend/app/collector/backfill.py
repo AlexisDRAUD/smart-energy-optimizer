@@ -28,16 +28,16 @@ from app.config import settings
 
 LOGGER = logging.getLogger(__name__)
 
-FENETRE_MINUTES = 1000  # 1000 points sur 1000 minutes = 1 point/minute
+WINDOW_MINUTES = 1000  # 1000 points sur 1000 minutes = 1 point/minute
 TIMEOUT_SECONDS = 60
 
 
 class Backfill:
     """Reprise de l historique d un seul site."""
 
-    def __init__(self, storage, client_api, site_id: str, days: int | None = None):
+    def __init__(self, storage, api_client, site_id: str, days: int | None = None):
         self.storage = storage
-        self.client_api = client_api
+        self.api_client = api_client
         self.site_id = site_id
         self.days = settings.backfill_days if days is None else days
 
@@ -55,30 +55,30 @@ class Backfill:
         d une dizaine d allers-retours reseau bloquerait le nettoyage de la
         table pour rien.
         """
-        fin = datetime.now().replace(second=0, microsecond=0)
-        debut = fin - timedelta(days=self.days)
+        end = datetime.now().replace(second=0, microsecond=0)
+        start = end - timedelta(days=self.days)
 
-        mesures = []
-        curseur = debut
-        while curseur < fin:
-            fin_fenetre = min(curseur + timedelta(minutes=FENETRE_MINUTES), fin)
-            limit = int((fin_fenetre - curseur).total_seconds() / 60)
-            mesures.extend(self.client_api(self.site_id, curseur, fin_fenetre, limit))
-            curseur = fin_fenetre
+        measurements = []
+        cursor = start
+        while cursor < end:
+            window_end = min(cursor + timedelta(minutes=WINDOW_MINUTES), end)
+            limit = int((window_end - cursor).total_seconds() / 60)
+            measurements.extend(self.api_client(self.site_id, cursor, window_end, limit))
+            cursor = window_end
 
         # Une insertion par lot et non une par mesure : la reprise ecrit des
         # dizaines de milliers de lignes.
-        inserees = self.storage.store_raw_many(
-            "api_backfill", [json.dumps(mesure) for mesure in mesures]
+        inserted_count = self.storage.store_raw_many(
+            "api_backfill", [json.dumps(measurement) for measurement in measurements]
         )
 
         LOGGER.info(
-            "Site %s: %d mesure(s) reprises sur %d jour(s)", self.site_id, inserees, self.days
+            "Site %s: %d mesure(s) reprises sur %d jour(s)", self.site_id, inserted_count, self.days
         )
-        return inserees
+        return inserted_count
 
 
-def sites_deja_repris(storage) -> set[str]:
+def already_backfilled_sites(storage) -> set[str]:
     """Les sites qui ont deja leur historique en base.
 
     L endpoint historique regenere les donnees a chaque appel : reprendre un
@@ -113,7 +113,7 @@ class BackfillCounts:
 
 def run_backfill(
     storage,
-    client_api,
+    api_client,
     site_ids: Sequence[str],
     days: int | None = None,
     force: bool = False,
@@ -125,18 +125,18 @@ def run_backfill(
     dans le compte rendu, et comme un site en echec ne laisse aucune ligne, le
     demarrage suivant le reprend de lui-meme.
     """
-    deja_repris = set() if force else sites_deja_repris(storage)
+    already_backfilled = set() if force else already_backfilled_sites(storage)
 
     inserted = 0
     backfilled: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
     for site_id in site_ids:
-        if site_id in deja_repris:
+        if site_id in already_backfilled:
             skipped.append(site_id)
             continue
         try:
-            inserted += Backfill(storage, client_api, site_id, days).run()
+            inserted += Backfill(storage, api_client, site_id, days).run()
             backfilled.append(site_id)
         except Exception:
             LOGGER.exception("Reprise du site %s abandonnee", site_id)
@@ -154,17 +154,17 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=settings.source_api_base_url, timeout=TIMEOUT_SECONDS)
 
 
-def lire_les_sites(client: httpx.Client) -> list[dict]:
-    reponse = client.get("/api/v1/sites")
-    reponse.raise_for_status()
-    return reponse.json()
+def read_sites(client: httpx.Client) -> list[dict]:
+    response = client.get("/api/v1/sites")
+    response.raise_for_status()
+    return response.json()
 
 
-def client_api_reel(client: httpx.Client):
+def real_api_client(client: httpx.Client):
     """Fabrique la fonction d appel attendue par Backfill."""
 
-    def appeler(site_id, start_time, end_time, limit):
-        reponse = client.get(
+    def call(site_id, start_time, end_time, limit):
+        response = client.get(
             "/api/v1/readings",
             params={
                 "site_id": site_id,
@@ -173,10 +173,10 @@ def client_api_reel(client: httpx.Client):
                 "limit": limit,
             },
         )
-        reponse.raise_for_status()
-        return reponse.json()
+        response.raise_for_status()
+        return response.json()
 
-    return appeler
+    return call
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -208,14 +208,14 @@ def main() -> int:
     storage = PostgresStorage(settings.database_url)
     try:
         with _client() as client:
-            sites = lire_les_sites(client)
+            sites = read_sites(client)
             # Le referentiel part en base des maintenant : sans lui l API repond
             # 404 sur tout jusqu au premier passage du collecteur.
             storage.store_snapshot("api_sites", json.dumps(sites))
 
             site_ids = arguments.sites or [site["site_id"] for site in sites]
             counts = run_backfill(
-                storage, client_api_reel(client), site_ids, arguments.days, arguments.force
+                storage, real_api_client(client), site_ids, arguments.days, arguments.force
             )
     # Large volontairement : une source injoignable est une reprise en echec,
     # pas une trace d exception a dechiffrer dans le journal de demarrage.

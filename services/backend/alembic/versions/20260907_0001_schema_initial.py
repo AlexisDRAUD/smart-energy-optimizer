@@ -25,12 +25,12 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Cree le schema complet."""
-    _creer_etage_1_brut()
-    _creer_etage_2_transforme()
-    _creer_etage_3_applicatif()
+    _create_stage_1_raw()
+    _create_stage_2_transformed()
+    _create_stage_3_application()
 
 
-def _creer_etage_1_brut() -> None:
+def _create_stage_1_raw() -> None:
     """Le brut, tel que la source l a envoye. Aucune interpretation ici."""
     op.create_table(
         "raw_readings",
@@ -105,7 +105,7 @@ def _creer_etage_1_brut() -> None:
     )
 
 
-def _creer_etage_2_transforme() -> None:
+def _create_stage_2_transformed() -> None:
     """Le transforme, ecrit par l ETL depuis le brut."""
     op.create_table(
         "sites",
@@ -207,7 +207,7 @@ def _creer_etage_2_transforme() -> None:
     )
 
 
-def _creer_etage_3_applicatif() -> None:
+def _create_stage_3_application() -> None:
     """Les tables ecrites par l API : comptes, predictions, alertes."""
     op.create_table(
         "users",

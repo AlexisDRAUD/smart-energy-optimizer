@@ -36,7 +36,7 @@ LOGGER = logging.getLogger(__name__)
 
 # Borne basse du premier passage, quand aucun passage reussi n existe encore.
 # Assez ancienne pour couvrir n importe quelle reprise d historique.
-DEBUT_DES_TEMPS = datetime(1970, 1, 1, tzinfo=UTC)
+BEGINNING_OF_TIME = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ def compute_window(db: Session, since: datetime | None) -> tuple[datetime, datet
         .limit(1)
     )
     if last_success is None:
-        return DEBUT_DES_TEMPS, end
+        return BEGINNING_OF_TIME, end
     return last_success - timedelta(minutes=settings.etl_window_overlap_minutes), end
 
 

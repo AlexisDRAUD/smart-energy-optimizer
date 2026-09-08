@@ -72,138 +72,140 @@ def refresh_profiles(db: Session, now: datetime | None = None) -> int:
     de milliers de points par site : il est volontairement rare, une fois par
     IMPUTATION_PROFILE_REFRESH_HOURS.
     """
-    moment = now or datetime.now(UTC)
-    limite = moment - timedelta(hours=settings.imputation_profile_refresh_hours)
+    computed_at = now or datetime.now(UTC)
+    cutoff = computed_at - timedelta(hours=settings.imputation_profile_refresh_hours)
 
     site_ids = list(
         db.execute(
             text(
                 "SELECT site_id FROM sites "
-                "WHERE imputation_profile_at IS NULL OR imputation_profile_at < :limite "
+                "WHERE imputation_profile_at IS NULL OR imputation_profile_at < :cutoff "
                 "ORDER BY site_id"
             ),
-            {"limite": limite},
+            {"cutoff": cutoff},
         ).scalars()
     )
     if not site_ids:
         return 0
 
-    depuis = moment - timedelta(days=PROFILE_LOOKBACK_DAYS)
-    lignes = db.execute(
+    window_start = computed_at - timedelta(days=PROFILE_LOOKBACK_DAYS)
+    rows = db.execute(
         text(
             "SELECT site_id, measured_at, consumption_kwh_raw, null_reasons FROM readings "
-            "WHERE site_id = ANY(:site_ids) AND measured_at >= :depuis "
+            "WHERE site_id = ANY(:site_ids) AND measured_at >= :window_start "
             "ORDER BY site_id, measured_at"
         ),
-        {"site_ids": site_ids, "depuis": depuis},
+        {"site_ids": site_ids, "window_start": window_start},
     ).all()
 
     observations = [
         ConsumptionObservation(
-            site_id=ligne.site_id,
-            measured_at=ligne.measured_at,
-            consumption_kwh_raw=ligne.consumption_kwh_raw,
-            null_reasons=tuple(ligne.null_reasons or ()),
+            site_id=row.site_id,
+            measured_at=row.measured_at,
+            consumption_kwh_raw=row.consumption_kwh_raw,
+            null_reasons=tuple(row.null_reasons or ()),
         )
-        for ligne in lignes
+        for row in rows
     ]
 
-    resultats = {r.site_id: r for r in compare_imputation_methods(observations)}
+    results = {backtest.site_id: backtest for backtest in compare_imputation_methods(observations)}
     for site_id in site_ids:
-        resultat = resultats.get(site_id)
+        result = results.get(site_id)
         # Un site sans historique exploitable reste unknown, donc non impute.
-        profil = resultat.profile if resultat else "unknown"
-        raison = resultat.decision_reason if resultat else "no_history"
+        profile = result.profile if result else "unknown"
+        reason = result.decision_reason if result else "no_history"
         db.execute(
             text(
-                "UPDATE sites SET imputation_profile = :profil, imputation_profile_at = :moment "
+                "UPDATE sites SET imputation_profile = :profile, "
+                "imputation_profile_at = :computed_at "
                 "WHERE site_id = :site_id"
             ),
-            {"profil": profil, "moment": moment, "site_id": site_id},
+            {"profile": profile, "computed_at": computed_at, "site_id": site_id},
         )
-        LOGGER.info("Profil de %s: %s (%s)", site_id, profil, raison)
+        LOGGER.info("Profil de %s: %s (%s)", site_id, profile, reason)
 
     db.commit()
     return len(site_ids)
 
 
-def _combler(
-    fenetre: Sequence[Observation], debut: int, fin: int, profil: str
+def _fill_gap(
+    window: Sequence[Observation], start: int, end: int, profile: str
 ) -> list[tuple[datetime, float]]:
-    """Rend les valeurs a ecrire pour le trou fenetre[debut:fin], ou rien.
+    """Rend les valeurs a ecrire pour le trou window[start:end], ou rien.
 
-    *debut* et *fin* encadrent les valeurs nulles : fenetre[debut] et
-    fenetre[fin] sont les deux valeurs reelles d ancrage.
+    *start* et *end* encadrent les valeurs nulles : window[start] et window[end]
+    sont les deux valeurs reelles d ancrage.
     """
-    avant = fenetre[debut]
-    apres = fenetre[fin]
-    duree = apres.measured_at - avant.measured_at
+    before = window[start]
+    after = window[end]
+    duration = after.measured_at - before.measured_at
 
     # Le trou doit etre referme a la cadence exacte : une minute manquante dans
     # la suite est un trou de collecte, pas une valeur nulle, et on ne
     # l enjambe pas.
-    manquantes = fin - debut - 1
-    if duree != CADENCE * (manquantes + 1):
+    missing_count = end - start - 1
+    if duration != CADENCE * (missing_count + 1):
         return []
-    if manquantes > BacktestConfig().maximum_gap_minutes:
-        return []
-
-    valeur_avant = avant.consumption_kwh_raw
-    valeur_apres = apres.consumption_kwh_raw
-    if valeur_avant is None or valeur_apres is None:
+    if missing_count > BacktestConfig().maximum_gap_minutes:
         return []
 
-    valeurs = []
-    for index in range(debut + 1, fin):
-        trou = fenetre[index]
-        if profil == REPORT:
-            valeurs.append((trou.measured_at, valeur_avant))
+    value_before = before.consumption_kwh_raw
+    value_after = after.consumption_kwh_raw
+    if value_before is None or value_after is None:
+        return []
+
+    values = []
+    for index in range(start + 1, end):
+        gap = window[index]
+        if profile == REPORT:
+            values.append((gap.measured_at, value_before))
         else:
-            fraction = (trou.measured_at - avant.measured_at) / duree
-            valeurs.append(
-                (trou.measured_at, valeur_avant + fraction * (valeur_apres - valeur_avant))
-            )
-    return valeurs
+            fraction = (gap.measured_at - before.measured_at) / duration
+            values.append((gap.measured_at, value_before + fraction * (value_after - value_before)))
+    return values
 
 
-def _reparer_un_site(db: Session, site_id: str, profil: str, depuis: datetime) -> int:
+def _repair_one_site(db: Session, site_id: str, profile: str, window_start: datetime) -> int:
     """Repare les trous refermes d un site. Rend le nombre de lignes ecrites."""
-    methode = INTERPOLATION if profil == "variable" else REPORT
+    method = INTERPOLATION if profile == "variable" else REPORT
 
-    lignes = db.execute(
+    rows = db.execute(
         text(
             "SELECT measured_at, consumption_kwh_raw, null_reasons FROM readings "
-            "WHERE site_id = :site_id AND measured_at >= :depuis "
+            "WHERE site_id = :site_id AND measured_at >= :window_start "
             "ORDER BY measured_at"
         ),
-        {"site_id": site_id, "depuis": depuis - timedelta(minutes=ANCHOR_MARGIN_MINUTES)},
+        {
+            "site_id": site_id,
+            "window_start": window_start - timedelta(minutes=ANCHOR_MARGIN_MINUTES),
+        },
     ).all()
 
-    fenetre = [
+    window = [
         Observation(
-            measured_at=ligne.measured_at,
-            consumption_kwh_raw=ligne.consumption_kwh_raw,
-            null_reasons=tuple(ligne.null_reasons or ()),
+            measured_at=row.measured_at,
+            consumption_kwh_raw=row.consumption_kwh_raw,
+            null_reasons=tuple(row.null_reasons or ()),
         )
-        for ligne in lignes
+        for row in rows
     ]
 
-    a_ecrire: list[tuple[datetime, float]] = []
-    dernier_reel = None
-    for index, observation in enumerate(fenetre):
+    to_write: list[tuple[datetime, float]] = []
+    last_real = None
+    for index, observation in enumerate(window):
         if not observation.is_real:
             continue
-        if dernier_reel is not None and index > dernier_reel + 1:
-            a_ecrire.extend(_combler(fenetre, dernier_reel, index, methode))
-        dernier_reel = index
+        if last_real is not None and index > last_real + 1:
+            to_write.extend(_fill_gap(window, last_real, index, method))
+        last_real = index
 
-    if not a_ecrire:
+    if not to_write:
         return 0
 
-    resultat = db.execute(
+    result = db.execute(
         text(
-            "UPDATE readings SET consumption_kwh = :valeur, is_imputed = true, "
-            "imputation_method = :methode "
+            "UPDATE readings SET consumption_kwh = :value, is_imputed = true, "
+            "imputation_method = :method "
             # Deux gardes. La premiere rend l operation sure : une valeur
             # reelle n est jamais touchee. La seconde evite de reecrire une
             # ligne deja reparee a l identique, ce qui epargne l ecriture et
@@ -211,15 +213,15 @@ def _reparer_un_site(db: Session, site_id: str, profil: str, depuis: datetime) -
             # reparations reelles, pas les passages.
             "WHERE site_id = :site_id AND measured_at = :instant "
             "AND consumption_kwh_raw IS NULL "
-            "AND (is_imputed IS NOT TRUE OR consumption_kwh IS DISTINCT FROM :valeur)"
+            "AND (is_imputed IS NOT TRUE OR consumption_kwh IS DISTINCT FROM :value)"
         ),
         [
-            {"valeur": round(valeur, 3), "methode": methode, "site_id": site_id, "instant": instant}
-            for instant, valeur in a_ecrire
+            {"value": round(value, 3), "method": method, "site_id": site_id, "instant": instant}
+            for instant, value in to_write
         ],
     )
     db.commit()
-    return resultat.rowcount
+    return result.rowcount
 
 
 def repair_window_start(since: datetime | None = None, now: datetime | None = None) -> datetime:
@@ -241,7 +243,7 @@ def repair_readings(db: Session, since: datetime | None = None) -> int:
     pas repare : c est ce qui protege un historique douteux sans qu aucun
     identifiant de site figure dans le code.
     """
-    depuis = repair_window_start(since)
+    window_start = repair_window_start(since)
 
     sites = db.execute(
         text(
@@ -252,5 +254,5 @@ def repair_readings(db: Session, since: datetime | None = None) -> int:
 
     total = 0
     for site in sites:
-        total += _reparer_un_site(db, site.site_id, site.imputation_profile, depuis)
+        total += _repair_one_site(db, site.site_id, site.imputation_profile, window_start)
     return total

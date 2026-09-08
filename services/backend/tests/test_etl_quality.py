@@ -39,7 +39,7 @@ def _reading(minute: int, raw: float | None, imputed: bool) -> Reading:
 
 
 @pytest.fixture
-def journee_mesuree(database: None) -> Generator[None, None, None]:
+def measured_day(database: None) -> Generator[None, None, None]:
     """Une journee de mesures : trois valeurs recues, deux nulles dont une reparee."""
     with SessionLocal() as db:
         db.add(
@@ -72,7 +72,7 @@ def journee_mesuree(database: None) -> Generator[None, None, None]:
         db.commit()
 
 
-def _resume(site_id: str) -> DataQualityDaily | None:
+def _summary(site_id: str) -> DataQualityDaily | None:
     with SessionLocal() as db:
         return db.scalar(
             select(DataQualityDaily).where(
@@ -81,43 +81,43 @@ def _resume(site_id: str) -> DataQualityDaily | None:
         )
 
 
-def test_le_resume_compte_les_recus_les_nuls_et_les_repares(journee_mesuree: None) -> None:
+def test_summary_counts_received_null_and_imputed_points(measured_day: None) -> None:
     with SessionLocal() as db:
         compute_daily_quality(db, [DAY])
 
-    resume = _resume(SITE_ID)
-    assert resume is not None
-    assert resume.expected_points == MINUTES_PER_DAY
-    assert resume.received_points == 5
+    summary = _summary(SITE_ID)
+    assert summary is not None
+    assert summary.expected_points == MINUTES_PER_DAY
+    assert summary.received_points == 5
     # Ce qui n est jamais arrive : le trou de collecte.
-    assert resume.missing_points == MINUTES_PER_DAY - 5
+    assert summary.missing_points == MINUTES_PER_DAY - 5
     # Recus sans valeur, que la reparation les ait remplis ou non.
-    assert resume.null_points == 2
-    assert resume.imputed_points == 1
+    assert summary.null_points == 2
+    assert summary.imputed_points == 1
 
 
-def test_un_site_muet_toute_la_journee_a_son_resume_a_zero(journee_mesuree: None) -> None:
+def test_a_site_silent_all_day_gets_a_zero_summary(measured_day: None) -> None:
     """Sans ligne, le trou ne se lit nulle part ailleurs : il faut l ecrire."""
     with SessionLocal() as db:
         compute_daily_quality(db, [DAY])
 
-    resume = _resume("LYO-01")
-    assert resume is not None
-    assert resume.received_points == 0
-    assert resume.missing_points == MINUTES_PER_DAY
+    summary = _summary("LYO-01")
+    assert summary is not None
+    assert summary.received_points == 0
+    assert summary.missing_points == MINUTES_PER_DAY
 
 
-def test_repasser_sur_le_meme_jour_recrit_les_memes_chiffres(journee_mesuree: None) -> None:
+def test_recomputing_the_same_day_writes_the_same_figures(measured_day: None) -> None:
     with SessionLocal() as db:
         compute_daily_quality(db, [DAY])
-        premier = _resume(SITE_ID)
-        assert premier is not None
-        attendu = (premier.received_points, premier.null_points, premier.imputed_points)
+        first = _summary(SITE_ID)
+        assert first is not None
+        expected = (first.received_points, first.null_points, first.imputed_points)
 
         compute_daily_quality(db, [DAY])
 
     with SessionLocal() as db:
-        lignes = list(
+        rows = list(
             db.scalars(
                 select(DataQualityDaily).where(
                     DataQualityDaily.site_id == SITE_ID, DataQualityDaily.day == DAY
@@ -125,41 +125,39 @@ def test_repasser_sur_le_meme_jour_recrit_les_memes_chiffres(journee_mesuree: No
             )
         )
 
-    assert len(lignes) == 1
-    assert (lignes[0].received_points, lignes[0].null_points, lignes[0].imputed_points) == attendu
+    assert len(rows) == 1
+    assert (rows[0].received_points, rows[0].null_points, rows[0].imputed_points) == expected
 
 
-def test_le_jour_en_cours_n_attend_que_les_minutes_ecoulees() -> None:
+def test_the_current_day_expects_only_elapsed_minutes() -> None:
     """Sinon la journee pas encore vecue passerait pour un trou de collecte."""
-    maintenant = datetime(2026, 9, 8, 8, 30, tzinfo=UTC)
+    now = datetime(2026, 9, 8, 8, 30, tzinfo=UTC)
 
-    assert expected_points(maintenant.date(), maintenant) == 8 * 60 + 30 + 1
-    assert expected_points(maintenant.date() - timedelta(days=1), maintenant) == MINUTES_PER_DAY
-    assert expected_points(maintenant.date() + timedelta(days=1), maintenant) == 0
-
-
-def test_les_jours_touches_couvrent_les_deux_bornes() -> None:
-    debut = datetime(2026, 9, 6, 23, 50, tzinfo=UTC)
-    fin = datetime(2026, 9, 8, 0, 10, tzinfo=UTC)
-
-    assert days_touched(debut, fin) == {debut.date(), debut.date() + timedelta(days=1), fin.date()}
+    assert expected_points(now.date(), now) == 8 * 60 + 30 + 1
+    assert expected_points(now.date() - timedelta(days=1), now) == MINUTES_PER_DAY
+    assert expected_points(now.date() + timedelta(days=1), now) == 0
 
 
-def test_le_passage_etl_ecrit_le_resume_du_jour(database: None) -> None:
+def test_touched_days_cover_both_bounds() -> None:
+    start = datetime(2026, 9, 6, 23, 50, tzinfo=UTC)
+    end = datetime(2026, 9, 8, 0, 10, tzinfo=UTC)
+
+    assert days_touched(start, end) == {start.date(), start.date() + timedelta(days=1), end.date()}
+
+
+def test_the_etl_pass_writes_the_daily_summary(database: None) -> None:
     """Sans cet appel dans la passe, /api/v1/quality reste vide au demarrage."""
-    aujourd_hui = datetime.now(UTC).date()
+    today = datetime.now(UTC).date()
     with SessionLocal() as db:
-        db.execute(delete(DataQualityDaily).where(DataQualityDaily.day == aujourd_hui))
+        db.execute(delete(DataQualityDaily).where(DataQualityDaily.day == today))
         db.commit()
 
     assert run_once() == 0
 
     with SessionLocal() as db:
-        lignes = list(
-            db.scalars(select(DataQualityDaily).where(DataQualityDaily.day == aujourd_hui))
-        )
+        rows = list(db.scalars(select(DataQualityDaily).where(DataQualityDaily.day == today)))
 
-    assert {ligne.site_id for ligne in lignes} == {"LYO-01", "GRE-01", "NAN-01"}
-    lyon = next(ligne for ligne in lignes if ligne.site_id == "LYO-01")
+    assert {row.site_id for row in rows} == {"LYO-01", "GRE-01", "NAN-01"}
+    lyon = next(row for row in rows if row.site_id == "LYO-01")
     assert lyon.received_points > 0
     assert lyon.expected_points <= MINUTES_PER_DAY
