@@ -1,0 +1,53 @@
+---
+# Variables du deploiement. Aucun secret ici : les secrets vivent dans le
+# fichier d environnement designe par env_file_src, qui n est pas versionne.
+
+# Ou vit l application sur la VM, et sous quelle identite.
+app_dir: /opt/enervision
+app_user: enervision
+app_group: enervision
+
+# Le depot n est clone que pour son docker-compose.yml et ses contextes de
+# construction. Le code applicatif, lui, vient des images publiees.
+repo_url: https://github.com/AlexisDRAUD/smart-energy-optimizer.git
+repo_version: main
+
+# Fichier d environnement a deposer sur la VM. Par defaut prod.env, a la racine
+# du depot sur le poste qui applique le playbook, ignore par git.
+env_file_src: "{{ playbook_dir }}/../../prod.env"
+
+# Port du dashboard, a garder aligne sur WEB_PORT du fichier d environnement.
+web_port: 80
+
+# Journaux Docker. Sans plafond, le disque de la VM se remplit et c est la
+# panne la plus banale d une machine qu on administre soi meme.
+docker_log_max_size: "10m"
+docker_log_max_file: "3"
+
+# Sauvegarde de la base.
+backup_dir: /var/backups/enervision
+backup_keep_days: 7
+backup_hour: "3"
+backup_minute: "30"
+
+# Interrupteurs. Les deux derniers sont a false par defaut parce qu ils peuvent
+# couper l acces a la machine ou casser l application : a activer sciemment.
+configure_firewall: true
+harden_ssh: false
+create_app_role: false
+
+# Role applicatif, utilise seulement si create_app_role vaut true. Le mot de
+# passe se passe en ligne de commande, il n a rien a faire dans un fichier
+# versionne : -e app_role_password=...
+#
+# Le nom du compte PostgreSQL et celui de la base ne sont volontairement pas
+# repris ici. Ils vivent dans le fichier d environnement, que le compose donne
+# deja au conteneur : les redeclarer creerait une seconde source de verite qui
+# finirait par diverger.
+app_role_password: ""
+
+# Runner GitHub auto heberge. Le jeton d enregistrement est court et se recupere
+# dans les reglages du depot ; il se passe en ligne de commande, jamais ici.
+runner_version: "2.330.0"
+runner_labels: "self-hosted,linux,x64,enervision"
+runner_token: ""

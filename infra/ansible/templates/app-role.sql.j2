@@ -1,0 +1,26 @@
+-- Role applicatif au moindre privilege. Fichier depose puis efface par Ansible.
+--
+-- Le compte proprietaire garde les droits de structure, il sert aux migrations.
+-- Ce role la ne peut que lire et ecrire des lignes : meme en cas d injection,
+-- il n y a ni CREATE, ni DROP, ni ALTER a atteindre.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'seo_app') THEN
+    CREATE ROLE seo_app LOGIN PASSWORD '{{ app_role_password }}';
+  END IF;
+END
+$$;
+
+-- Personne ne cree d objet dans le schema public par defaut.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+GRANT USAGE ON SCHEMA public TO seo_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO seo_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO seo_app;
+
+-- Les tables creees par les futures migrations heritent des memes droits,
+-- sinon il faudrait rejouer ces GRANT apres chaque migration.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO seo_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO seo_app;
