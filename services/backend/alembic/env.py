@@ -11,8 +11,11 @@ from sqlalchemy import engine_from_config, pool
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
+# Sans disable_existing_loggers=False, fileConfig eteint les loggers deja crees
+# par l application (app.*) : sous pytest, la fixture "database" joue les
+# migrations et les tests qui verifient un log via caplog ne voient plus rien.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
