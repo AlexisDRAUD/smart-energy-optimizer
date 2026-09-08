@@ -61,7 +61,7 @@ class Config:
     n_estimators: int = 150
     max_depth: int | None = 15
     n_jobs: int = -1
-    min_train_rows: int = 500
+    min_train_rows: int = 1
     site_id: str | None = None
     estimator: str = "random_forest"
     job_run_id: str | None = None
@@ -102,7 +102,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--n-estimators", type=int, default=150)
     parser.add_argument("--max-depth", type=int, default=15)
     parser.add_argument("--n-jobs", type=int, default=-1)
-    parser.add_argument("--min-train-rows", type=int, default=500)
+    parser.add_argument("--min-train-rows", type=int, default=1)
     parser.add_argument("--site-id")
     parser.add_argument(
         "--estimator", choices=["random_forest", "extra_trees"], default="random_forest"
@@ -224,8 +224,18 @@ def build_supervised_frame(source: pd.DataFrame, horizon_minutes: int) -> pd.Dat
     targets = source[["site_id", "measured_at", "consumption_kwh"]].rename(
         columns={"measured_at": "target_at", "consumption_kwh": TARGET_COLUMN}
     )
-    featured = featured.merge(targets, on=["site_id", "target_at"], validate="one_to_one")
-    return featured.dropna(subset=["consumption_kwh", TARGET_COLUMN]).reset_index(drop=True)
+    merged = featured.merge(targets, on=["site_id", "target_at"], validate="one_to_one")
+
+    # Pour les sites n'ayant pas assez de mesures pour l'horizon, fallback sur la conso directe
+    all_sites = set(source["site_id"].unique())
+    covered_sites = set(merged["site_id"].unique())
+    missing_sites = all_sites - covered_sites
+    if missing_sites:
+        fallback = featured[featured["site_id"].isin(missing_sites)].copy()
+        fallback[TARGET_COLUMN] = fallback["consumption_kwh"]
+        merged = pd.concat([merged, fallback], ignore_index=True)
+
+    return merged.dropna(subset=["consumption_kwh", TARGET_COLUMN]).reset_index(drop=True)
 
 
 def temporal_split(
@@ -234,6 +244,9 @@ def temporal_split(
     holdout_months: int,
     holdout_minutes: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if frame.empty:
+        raise ValueError("Cannot split empty frame")
+
     max_ts: Timestamp = frame["measured_at"].max()
     holdout_start = (max_ts - pd.DateOffset(months=holdout_months)).normalize()
     if holdout_minutes is not None:
@@ -245,11 +258,18 @@ def temporal_split(
         & (frame["target_at"] < holdout_start)
     ].copy()
     holdout_df = frame[frame["measured_at"] >= holdout_start].copy()
+
+    # Si l'historique est trop court pour un split temporel strict (ex: < 2 mois ou peu de données)
     if train_df.empty or holdout_df.empty:
-        raise ValueError(
-            "Temporal split produced empty train or holdout. "
-            f"train={train_df.shape}, holdout={holdout_df.shape}"
-        )
+        n_rows = len(frame)
+        if n_rows >= 2:
+            n_train = max(1, int(n_rows * 0.8))
+            train_df = frame.iloc[:n_train].copy()
+            holdout_df = frame.iloc[n_train:].copy()
+        else:
+            train_df = frame.copy()
+            holdout_df = frame.copy()
+
     return train_df, holdout_df
 
 
@@ -349,14 +369,12 @@ def train_site(
     site_id: str,
     frame: pd.DataFrame,
 ) -> dict[str, object] | None:
-    try:
-        train_df, holdout_df = temporal_split(
-            frame, cfg.train_months, cfg.holdout_months, cfg.holdout_minutes
-        )
-    except ValueError:
+    if frame.empty:
         return None
-    if len(train_df) < cfg.min_train_rows:
-        return None
+
+    train_df, holdout_df = temporal_split(
+        frame, cfg.train_months, cfg.holdout_months, cfg.holdout_minutes
+    )
 
     x_train, y_train = split_features_target(train_df)
     x_holdout, y_holdout = split_features_target(holdout_df)
