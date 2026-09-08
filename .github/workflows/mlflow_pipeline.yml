@@ -1,0 +1,58 @@
+name: MLflow training and evaluation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 2 * * *'  # daily at 02:00 UTC
+
+jobs:
+  mlflow-train:
+    name: Train and register models (MLflow)
+    # Runner must be able to reach the school VM database and the MLflow server.
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: services/ml
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/ml/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # install local features package (editable install)
+          pip install ../../packages/features
+          pip install -r requirements.txt
+          # ensure mlflow and DB drivers are present
+          pip install mlflow sqlalchemy psycopg2-binary scikit-learn joblib
+
+      - name: Run training (DB -> MLflow)
+        run: |
+          python main.py --use-db --train-months 22 --holdout-months 2
+
+      - name: Run optional local evaluation (CSV fallback)
+        run: |
+          if [ -f donnees.csv ]; then
+            python compare_models.py --csv donnees.csv --site-id site1 --horizon 120 --output-dir results
+          else
+            echo "donnees.csv not found in services/ml — skipping compare_models"
+          fi
+
+      - name: Upload results (predictions, metrics, plots)
+        uses: actions/upload-artifact@v6
+        with:
+          name: mlflow-training-results
+          path: services/ml/results/**
