@@ -30,6 +30,60 @@ Le fichier d'environnement déposé sur la VM est celui désigné par `env_file_
 `prod.env` à la racine du dépôt. Il n'est pas versionné et contient les secrets. `inventory.ini`
 n'est pas versionné non plus.
 
+## Le déploiement automatique
+
+Le job `deploy` de la chaîne d'intégration rejoue ce playbook depuis la VM elle-même. GitHub n'entre
+jamais sur la machine, c'est le runner qui sort, donc aucune clé SSH n'est confiée au dépôt et la
+connexion Ansible est locale.
+
+Le fichier d'environnement vient du secret de dépôt `PROD_ENV`, qui contient le fichier entier. Le
+job l'écrit avec `umask 077`, le passe en `-e env_file_src=`, et le supprime en fin de job même en
+cas d'échec. Le playbook, lui, ne change pas : il dépose ce qu'on lui donne.
+
+Le playbook est joué **en deux fois**, et l'ordre compte au premier passage. La machine n'a pas
+encore Docker, donc on ne peut pas s'authentifier à GHCR avant que le playbook l'ait installé :
+
+1. `--skip-tags deploy,runner` : comptes, Docker, pare-feu, arborescence, dépôt à jour, `.env`.
+2. `docker login ghcr.io` sous le compte de service, puisqu'une authentification vaut pour
+   l'utilisateur qui la fait et que le compose tourne sous ce compte.
+3. `--tags deploy` : tirage des images et démarrage de la pile.
+
+Le `docker logout` de fin retire les identifiants du registre de la machine. Le jeton de
+l'exécution expire de toute façon avec le job.
+
+**Le compromis à connaître.** Chaque tâche du playbook passe par `become`, et personne n'est devant
+le clavier pour taper un mot de passe. Le compte qui porte le runner, `deploy_user`, a donc `sudo`
+sans mot de passe, et il est de fait administrateur de la machine. C'est acceptable ici parce que la
+VM n'héberge que cette application et que le runner est limité à ce dépôt, mais ça se dit, ça
+s'écrit dans le rapport de sécurité, et ça ne se découvre pas.
+
+## L'amorçage
+
+La machine doit pouvoir faire tourner un playbook avant que le playbook ait pu la préparer. Trois
+commandes à passer une seule fois, en SSH sur la VM, avec un compte qui a `sudo` :
+
+```bash
+sudo apt update && sudo apt install -y ansible-core
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/"$USER"
+sudo chmod 0440 /etc/sudoers.d/"$USER" && sudo visudo -c
+```
+
+Puis installer le runner GitHub en suivant les commandes que donne la page **Settings → Actions →
+Runners → New self-hosted runner**, et le passer en service avec `sudo ./svc.sh install $USER` puis
+`sudo ./svc.sh start`.
+
+Si le runner tourne sous un autre compte que `enervision`, ajuster `deploy_user` en conséquence.
+
+À partir de là, la chaîne d'intégration fait tout : un merge dans `main` prépare la machine et
+déploie. Une machine ne peut pas s'accorder elle-même les droits dont elle a besoin pour se les
+accorder, tous les systèmes de ce type ont ce point de départ manuel, et savoir l'expliquer vaut
+mieux que de le masquer.
+
+## Le lancement à la main
+
+Il reste possible et c'est le repli si la VM ne sort pas sur internet. Il demande alors Ansible sur
+le poste et un `inventory.ini` renseigné, ce dont le déploiement automatique n'a pas besoin.
+
 ## Ce que fait le playbook
 
 | Étiquette | Contenu |
@@ -75,13 +129,6 @@ fichier :
 ```bash
 ansible-playbook site.yml --tags runner -e runner_token=XXXX
 ```
-
-## L'amorçage
-
-La première application se fait à la main depuis un poste, puisque le runner n'existe pas
-encore. Une fois le runner installé, le job de déploiement de la chaîne d'intégration prend le
-relais et rejoue ce même playbook sur la machine. Tous les systèmes de ce type ont ce point de
-départ manuel, et savoir l'expliquer vaut mieux que de le masquer.
 
 ## Vérifications faites sur ce playbook
 

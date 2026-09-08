@@ -46,6 +46,19 @@ create_app_role: false
 # finirait par diverger.
 app_role_password: ""
 
+# Le compte sous lequel tourne le runner GitHub, donc celui qui rejoue ce
+# playbook depuis la VM. Ansible y a besoin de sudo sans mot de passe :
+# personne n est devant le clavier pour taper quoi que ce soit. C est le
+# compromis assume de ce montage, ce compte est de fait administrateur de la
+# machine. Mettre runner_sudo a false si le deploiement reste manuel.
+#
+# La toute premiere ligne de sudo est posee a la main pendant l amorcage : une
+# machine ne peut pas s accorder elle meme les droits dont elle a besoin pour
+# se les accorder. Elle est declaree ici pour que l etat de la machine reste
+# entierement decrit par le code.
+deploy_user: enervision
+runner_sudo: true
+
 # Runner GitHub auto heberge. Le jeton d enregistrement est court et se recupere
 # dans les reglages du depot ; il se passe en ligne de commande, jamais ici.
 runner_version: "2.330.0"

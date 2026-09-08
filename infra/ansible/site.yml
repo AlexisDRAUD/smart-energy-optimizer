@@ -26,6 +26,9 @@
           - git
           - gnupg
           - ufw
+          # Le job de deploiement rejoue ce playbook depuis la VM : Ansible
+          # doit donc exister sur la machine, pas seulement sur le poste.
+          - ansible-core
         state: present
         update_cache: true
         cache_valid_time: 3600
@@ -49,6 +52,19 @@
         shell: /bin/bash
         create_home: true
         state: present
+      tags: [users]
+
+    # Sans cela, le job de deploiement ne peut pas rejouer le playbook : il
+    # tourne sous ce compte et chaque tache passe par become. La regle est
+    # validee par visudo avant d etre ecrite, une erreur de syntaxe dans ce
+    # fichier rendrait sudo inutilisable sur toute la machine.
+    - name: Sudo sans mot de passe pour le compte de service
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/{{ deploy_user }}
+        content: "{{ deploy_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        mode: "0440"
+        validate: visudo -cf %s
+      when: runner_sudo | bool
       tags: [users]
 
     # Desactive par defaut : couper l authentification par mot de passe avant
