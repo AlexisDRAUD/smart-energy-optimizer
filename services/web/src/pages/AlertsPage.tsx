@@ -74,12 +74,12 @@ export function AlertsPage() {
             />
             <PageFeedback
                 isLoading={sitesLoading || isInitialLoading}
-                error={sitesError ?? error}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
                 onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             <p className="alert-origin-note">
-                « Source collectée » identifie les alertes reçues par le collector. « Règle interne — non attribuée au ML » n’est pas présentée comme une alerte d’un modèle ML validé.
+                Les alertes collectées conservent les seuils de leur source. Les règles internes ne sont pas attribuées au modèle ML.
             </p>
 
             <section className="card-grid">

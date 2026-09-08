@@ -31,16 +31,24 @@ export function useAutoRefresh<T>({ enabled, key, load, errorMessage, intervalMs
         let active = true
         let running = false
         let controller: AbortController | null = null
+        let lastStartedAt = -Infinity
+        let timer: number | undefined
 
-        const execute = async () => {
-            if (!active || !enabled || running) return
+        const execute = async (automatic = false) => {
+            if (!active || !enabled || running || document.visibilityState === 'hidden') return
+            if (automatic && Date.now() - lastStartedAt < intervalMs) return
             running = true
+            lastStartedAt = Date.now()
+            window.clearInterval(timer)
+            timer = window.setInterval(() => { void execute(true) }, intervalMs)
             controller = new AbortController()
             setIsSyncing(true)
             try {
                 const data = await load(controller.signal)
                 if (active) setSnapshot({ key, data, error: null, lastSyncedAt: Date.now() })
             } catch (cause) {
+                // Promise.all can reject while sibling requests are still active.
+                controller.abort()
                 if (active && !isAbortError(cause)) {
                     setSnapshot((current) => ({
                         key,
@@ -56,15 +64,12 @@ export function useAutoRefresh<T>({ enabled, key, load, errorMessage, intervalMs
             }
         }
 
-        executeRef.current = execute
+        executeRef.current = () => execute()
         setSnapshot((current) => current.key === key ? current : { key, data: null, error: null, lastSyncedAt: null })
         void execute()
 
-        const timer = window.setInterval(() => {
-            if (document.visibilityState === 'visible') void execute()
-        }, intervalMs)
         const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') void execute()
+            if (document.visibilityState === 'visible') void execute(true)
         }
         document.addEventListener('visibilitychange', onVisibilityChange)
 

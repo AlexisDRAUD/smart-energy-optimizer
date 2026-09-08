@@ -79,7 +79,7 @@ export function DashboardPage() {
             />
             <PageFeedback
                 isLoading={sitesLoading || isInitialLoading}
-                error={sitesError ?? error}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
                 onRetry={() => { void reloadSites(); void refresh() }}
             />
 
@@ -122,14 +122,16 @@ export function DashboardPage() {
                             <div className="card-heading">
                                 <div>
                                     <h2>Consommation réelle et prédite</h2>
-                                    <p>{selectedSite.site_name}</p>
+                                    <p>{selectedSite.site_name} · H+2 · version {data.chart.model_version}</p>
                                 </div>
                                 <div className="legend">
                                     <span><i className="solid-line" /> Réel</span>
                                     <span><i className="dashed-line" /> Prédiction H+2</span>
                                 </div>
                             </div>
+                            <p className="chart-context">Du {formatDateTime(data.chart.start)} au {formatDateTime(data.chart.end)} · heures locales</p>
                             <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
+                            {data.chart.prediction_coverage.valid_minutes === 0 && <p className="chart-context">Aucune prédiction historique exploitable pour cette version sur la période.</p>}
                             <div className="data-quality-summary" aria-label="Qualité des données réelles">
                                 <span><small>Couverture exploitable</small><strong>{formatPercent(data.chart.reading_coverage.percent)}</strong></span>
                                 <span><small>Valeurs nulles</small><strong>{data.chart.reading_coverage.null_minutes.toLocaleString('fr-FR')}</strong></span>

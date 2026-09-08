@@ -18,6 +18,37 @@ beforeEach(() => {
 
 afterEach(() => {
     jest.useRealTimers()
+    jest.restoreAllMocks()
+})
+
+test('aborts sibling requests when one resource fails', async () => {
+    const signals: AbortSignal[] = []
+    const load = jest.fn(async (signal: AbortSignal) => {
+        signals.push(signal)
+        throw new Error('Resource failed')
+    })
+    render(<Probe load={load} />)
+    await screen.findByText('Resource failed')
+    expect(signals[0].aborted).toBe(true)
+})
+
+test('pauses while hidden and does not duplicate a refresh after returning', async () => {
+    const visibility = jest.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+    const load = jest.fn().mockResolvedValue('valid')
+    render(<Probe load={load} />)
+    await act(async () => { jest.advanceTimersByTime(90_000) })
+    expect(load).not.toHaveBeenCalled()
+    visibility.mockReturnValue('visible')
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(load).toHaveBeenCalledTimes(1)
+    await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        jest.advanceTimersByTime(30_000)
+    })
+    expect(load).toHaveBeenCalledTimes(1)
+    await act(async () => { jest.advanceTimersByTime(60_000) })
+    expect(load).toHaveBeenCalledTimes(2)
 })
 
 test('runs every 60 seconds without overlapping an unfinished request', async () => {

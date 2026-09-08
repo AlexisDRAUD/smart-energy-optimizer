@@ -184,7 +184,7 @@ nav { display: grid; gap: 7px; }
    empile quand il n'y en a plus. Pas de media query.
    ============================================================ */
 
-.analysis-grid { display: flex; flex-wrap: wrap; gap: 20px; }
+.analysis-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; }
 .analysis-grid > .chart-card { flex: 3 1 440px; min-width: 0; }
 .analysis-grid > .right-column { flex: 1 1 300px; display: grid; gap: 20px; align-content: start; }
 
@@ -242,7 +242,7 @@ nav { display: grid; gap: 7px; }
 }
 
 .data-details-grid section { min-width: 0; }
-.data-details-grid h3 { margin-bottom: 9px; font-size: 12px; }
+.data-details-grid h3 { margin-bottom: 9px; font-size: 13px; }
 .data-details-grid p { margin: 7px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .data-details-grid dl { display: grid; grid-template-columns: minmax(105px, 1fr) minmax(0, 1.25fr); gap: 6px 12px; margin: 0; font-size: 11px; }
 .data-details-grid dt { color: var(--muted); }
@@ -309,7 +309,8 @@ nav { display: grid; gap: 7px; }
 .refresh-button:disabled { cursor: wait; opacity: .55; }
 .refresh-button svg { width: 16px; }
 
-.sync-control { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 49px; }
+.sync-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; min-height: 49px; }
+.chart-context { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 8px 0; }
 .sync-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .sync-status.error { color: #b72f43; }
 

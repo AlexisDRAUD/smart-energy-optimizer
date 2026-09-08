@@ -78,7 +78,7 @@ export function PredictionsPage() {
             />
             <PageFeedback
                 isLoading={sitesLoading || isInitialLoading}
-                error={sitesError ?? error}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
                 onRetry={() => { void reloadSites(); void refresh() }}
             />
 
