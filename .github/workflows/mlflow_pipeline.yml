@@ -52,7 +52,7 @@ jobs:
           fi
 
       - name: Upload results (predictions, metrics, plots)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mlflow-training-results
           path: services/ml/results/**
