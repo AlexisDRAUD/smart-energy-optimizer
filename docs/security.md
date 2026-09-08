@@ -80,3 +80,43 @@ une analyse des erreurs de logique métier, un test d'intrusion, ni la surveilla
 de l'environnement en exécution. Une nouvelle CVE publiée après le build ne sera
 visible qu'au prochain scan ; les images doivent donc être reconstruites et
 analysées régulièrement.
+
+### Remédiation des rapports du 8 septembre 2026
+
+Le backend utilise `mlflow-skinny==3.16.0`, aligné sur le MLflow complet du
+service d'entraînement. Il conserve le chargement `pyfunc` des modèles
+scikit-learn/cloudpickle et les clients d'artefacts HTTP et S3, avec leurs
+dépendances scientifiques et `boto3` explicites. La version de scikit-learn
+est identique dans les deux services pour les modèles sérialisés. Le backend
+ne lance pas de serveur MLflow ; ses prévisions actuelles restent le calcul
+local de `prediction_service.py`.
+
+Cette version dépasse les versions corrigées indiquées pour les CVE MLflow
+du rapport qui disposent d'un correctif. Le paquet complet et sa dépendance
+`pyarrow` ne sont plus installés dans le backend. Skinny contient encore du
+code MLflow partagé : ce changement n'est pas une preuve que toute CVE sans
+correctif a disparu. En particulier, CVE-2026-0545 concerne les endpoints de
+jobs du serveur, non exposés par le backend. Ne pas activer l'exécution de
+jobs du serveur d'entraînement sans réévaluer cet avis. Ne charger que des
+artefacts de confiance : cloudpickle peut exécuter du code à la désérialisation.
+
+Le runtime web exige `libuuid>=2.42.3-r1`, version corrigée pour les sept
+alertes HIGH du rapport Alpine. Le backend reste sur Debian/glibc
+`python:3.12-slim-trixie`, pour conserver les wheels scientifiques ARM64.
+
+Les trois alertes CRITICAL `perl-base` restent **non corrigées** dans cette
+distribution : [CVE-2026-13221](https://security-tracker.debian.org/tracker/CVE-2026-13221),
+[CVE-2026-42496](https://security-tracker.debian.org/tracker/CVE-2026-42496)
+et [CVE-2026-8376](https://security-tracker.debian.org/tracker/CVE-2026-8376).
+Au 8 septembre 2026, Debian stable propose toujours `5.40.1-6` ; les avis
+référencent des correctifs en testing/unstable, pas en trixie ni en bookworm.
+Un retour à bookworm ne les corrigerait donc pas. Le paquet essentiel n'est
+pas supprimé, aucune distribution instable n'est introduite et aucune
+exception Trivy n'est ajoutée : **la publication reste bloquée** tant que
+ces alertes persistent. Reconstruire avec `--pull` et rescanner dès qu'un
+correctif stable est disponible.
+
+Validation locale ARM64 avec Trivy 0.74.0 : le backend reconstruit passe de
+11 à 3 CRITICAL et de 65 à 51 HIGH, tous les résultats restants étant des
+paquets OS ; le web passe de 7 HIGH à zéro HIGH/CRITICAL. Ces résultats ne
+remplacent pas le scan CI de l'architecture publiée.

@@ -3,7 +3,7 @@
 #
 # Construite depuis la racine du depot, parce qu elle installe packages/features.
 # Debian/glibc permet d utiliser les wheels scientifiques precompilees (ARM64 inclus).
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
