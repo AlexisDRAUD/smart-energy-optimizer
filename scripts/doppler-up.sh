@@ -11,13 +11,18 @@ if ! command -v doppler >/dev/null 2>&1; then
 fi
 
 if [ -z "${DOPPLER_TOKEN:-}" ]; then
-  echo "DOPPLER_TOKEN not set. You can run 'doppler login' interactively or export DOPPLER_TOKEN."
-  echo "If you want to proceed without Doppler, set DOPPLER_TOKEN= and run 'docker compose up' directly."
-  read -r -p "Continue without Doppler token? (y/N): " answer
-  case "${answer}" in
-    [Yy]*) ;;
-    *) echo "Aborting."; exit 1;;
-  esac
+  # Allow interactive/local doppler login (doppler login) or a machine token.
+  if doppler whoami >/dev/null 2>&1; then
+    echo "doppler CLI is logged in locally — using local session."
+  else
+    echo "DOPPLER_TOKEN not set and doppler CLI not logged in."
+    echo "Run 'doppler login' or export DOPPLER_TOKEN to enable Doppler secrets."
+    read -r -p "Continue without Doppler (compose will run without Doppler)? (y/N): " answer
+    case "${answer}" in
+      [Yy]*) echo "Proceeding without Doppler."; exec docker compose up --build ;;
+      *) echo "Aborting."; exit 1;;
+    esac
+  fi
 fi
 
 echo "Starting docker compose with Doppler..."
