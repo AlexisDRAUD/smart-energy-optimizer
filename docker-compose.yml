@@ -4,13 +4,13 @@
 #
 # Ordre de demarrage :
 #   db  ->  migrate (schema Alembic, comptes, reprise d historique)
-#        ->  api, collector, etl  ->  web
+#        ->  api, collector, etl, supervisor  ->  web
 #
-# Deux images ici : backend et web. L image backend est lancee quatre fois avec
-# des commandes differentes, parce que l API, le collecteur et l ETL partagent la
-# meme base, le meme code et la meme cadence de livraison. Ils restent dans des
-# conteneurs separes : le collecteur qui plante ne doit pas emporter le dashboard.
-# L image ml existe dans services/ml/ mais n est pas encore branchee ici.
+# Trois images ici : backend, web et ml. L image backend est lancee cinq fois
+# avec des commandes differentes, parce que l API, le collecteur, l ETL et le
+# superviseur partagent la meme base, le meme code et la meme cadence de
+# livraison. Ils restent dans des conteneurs separes : le collecteur qui plante
+# ne doit pas emporter le dashboard.
 #
 # Le schema n existe que dans services/backend/alembic/versions/. Aucun fichier
 # SQL n est joue par l image PostgreSQL au premier demarrage.
@@ -127,6 +127,29 @@ services:
   etl:
     <<: *backend
     command: ["python", "-m", "app.etl"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Le superviseur ML : meme image, commande differente. Mesure l erreur du
+  # modele en production, site par site, et decide des reentrainements. Il ne
+  # depend pas de mlflow : registre injoignable = site sans seuil = supervision
+  # inactive et un WARNING, pas un arret. Il ne lance rien tant que le service
+  # ML n expose pas d entrainement appelable par une machine : il journalise.
+  # Voir docs/ml-supervision.md.
+  supervisor:
+    <<: *backend
+    command: ["python", "-m", "app.supervisor"]
+    environment:
+      <<: *backend-env
+      SUPERVISOR_INTERVAL_SECONDS: ${SUPERVISOR_INTERVAL_SECONDS:-300}
+      SUPERVISOR_DECISION_WINDOW_HOURS: ${SUPERVISOR_DECISION_WINDOW_HOURS:-168}
+      SUPERVISOR_ALERT_WINDOW_HOURS: ${SUPERVISOR_ALERT_WINDOW_HOURS:-24}
+      SUPERVISOR_GRACE_HOURS: ${SUPERVISOR_GRACE_HOURS:-24}
+      SUPERVISOR_LOCK_HOURS: ${SUPERVISOR_LOCK_HOURS:-24}
+      SUPERVISOR_MAX_MODEL_AGE_DAYS: ${SUPERVISOR_MAX_MODEL_AGE_DAYS:-7}
+      SUPERVISOR_MAE_TOLERANCE: ${SUPERVISOR_MAE_TOLERANCE:-1.5}
     depends_on:
       migrate:
         condition: service_completed_successfully
