@@ -49,19 +49,11 @@ def add_lag_features(df: pd.DataFrame, value_col: str = "consumption_kwh") -> pd
         shifted_1 = out.groupby(group_cols)[value_col].shift(1)
         shifted_60 = out.groupby(group_cols)[value_col].shift(60)
         shifted_120 = out.groupby(group_cols)[value_col].shift(120)
-        rolling_30 = (
-            out.groupby(group_cols)[value_col]
-            .shift(1)
-            .rolling(window=30, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
+        rolling_30 = out.groupby(group_cols)[value_col].transform(
+            lambda values: values.shift(1).rolling(window=30, min_periods=1).mean()
         )
-        rolling_120 = (
-            out.groupby(group_cols)[value_col]
-            .shift(1)
-            .rolling(window=120, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
+        rolling_120 = out.groupby(group_cols)[value_col].transform(
+            lambda values: values.shift(1).rolling(window=120, min_periods=1).mean()
         )
 
     out["lag_1"] = shifted_1
@@ -92,6 +84,11 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         sort_cols = ["site_id", "measured_at"]
 
     out = df.sort_values(sort_cols).reset_index(drop=True)
+    for column in ("temperature_celsius", "humidity_percent"):
+        if column not in out:
+            out[column] = float("nan")
+        out[column] = pd.to_numeric(out[column], errors="coerce").astype(float)
+        out[column] = out[column].replace([float("inf"), float("-inf")], float("nan"))
     out = add_calendar_features(out, ts_col="measured_at")
     out = add_lag_features(out, value_col="consumption_kwh")
     return out

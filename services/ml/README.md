@@ -1,135 +1,98 @@
 # Service ML
 
-Entrainement, evaluation et publication des modeles dans MLflow.
+`docker compose up -d --build mlflow` attend PostgreSQL, les migrations et
+l'initialisation bornee du bucket MinIO, puis lance **un seul conteneur** :
+serveur MLflow et entrainement depuis `readings` joint a `sites`.
 
-## Variables d'environnement
+Un modele `EnerVision_RF_Predictor_<site_id>` est versionne pour chaque site
+disposant d'assez de donnees ; son alias `production` est mis a jour apres
+evaluation et publication. Aucun modele entraine est une erreur.
 
-- `DATABASE_URL` (obligatoire avec `--use-db`)
-- `MLFLOW_TRACKING_URI` (recommande)
+## Configuration
 
-## Entrainement
+- `ML_TRAIN_ON_START=1` : entrainer a chaque demarrage (nouvelle version).
+  Mettre `0` pour servir uniquement, notamment sur une base vide.
+- `TRAIN_ARGS=--holdout-minutes 120` : valeur Compose pour les 24 heures de
+  demonstration. Pour un historique reel :
+  `--train-months 22 --holdout-months 2 --min-train-rows 500`.
+- `MLFLOW_START_TIMEOUT_SECONDS=120` : attente HTTP bornee.
+- `DATABASE_URL` : fourni par Compose ; obligatoire hors Docker.
 
-Mode base PostgreSQL (`readings` + `sites`) :
+Le script sans argument utilise PostgreSQL. `--csv /chemin/fichier.csv` est un
+choix explicite, jamais un repli automatique. Les CSV ne sont pas dans l'image.
+Le champ `consumption_kwh` est prioritaire si `consumption_kw` existe aussi.
 
-```bash
-python services/ml/main.py --use-db --horizon-minutes 120
-```
+L'horizon est aligne sur l'horodatage exact (120 minutes par defaut), et non
+sur un nombre de lignes. Les cibles traversant la limite du holdout sont purgees.
+Le package commun `seo_features` calcule les variables pour entrainer et servir.
+Seules les variables calendrier, retards, meteo et categories sont utilisees ;
+les horodatages, cibles et colonnes brutes supplementaires sont exclus.
+Les retards historiques du package restent exprimes en nombre d'observations.
+Le backend sert actuellement des previsions a 120 minutes : conserver cet
+horizon pour les modeles auxquels il accede.
 
-Mode CSV (fallback local) :
+## Exploitation
 
-```bash
-python services/ml/main.py --csv services/ml/donnees.csv
-```
+Interface : http://127.0.0.1:5000.
 
-Le script entraine **un modele par site** et enregistre chaque modele sous :
+### Entraîner depuis MLflow
 
-- `EnerVision_RF_Predictor_<SITE_ID>`
+Cliquer **Entraîner un modèle** dans MLflow (ou ouvrir
+http://127.0.0.1:5000/training). Choisir le site PostgreSQL, Random Forest ou
+Extra Trees, et la durée du holdout puis **Entraîner**. La requête retourne
+immédiatement ; le processus travaille dans le même conteneur. Un verrou
+interprocessus empêche les entraînements simultanés (UI, CLI et démarrage).
+Les jobs et leurs runs enfants sont persistés dans MLflow ; les jobs interrompus
+sont signalés lors du prochain affichage.
 
-Puis il met a jour l'alias de registre `production` (option desactivable avec
-`--no-production-alias`).
+Les runs enfants affichent **MAE**, **RMSE** (kWh, plus bas est meilleur) et
+**R²** (plus haut est meilleur, peut être négatif ; absent pour un seul exemple).
+Il s'agit de régression, pas d'une « accuracy » de classification.
+Dans les artefacts du run : `holdout/predictions.csv` contient toutes les valeurs
+réelles/prédites et horodatages ; `holdout/actual_vs_predicted.png` les compare.
+Le graphe peut être sous-échantillonné pour rester lisible, jamais le CSV.
 
-## Exposition en production
+**L'UI ne promeut pas automatiquement le modèle.** Dans **Models**, ouvrir la
+version évaluée et lui attribuer explicitement l'alias `production`.
+La CLI et le démarrage gardent leur comportement existant ; utiliser
+`--no-production-alias` pour empêcher leur promotion automatique.
+`ML_TRAIN_ON_START=0` permet un fonctionnement entièrement manuel.
 
-Le service de prediction est dans `services/backend` (pas de serveur separe dans
-`services/ml`).
-
-## Automatisation
-
-- GitHub Actions `train.yml` : execution manuelle sur runner `self-hosted` ayant
-  acces reseau a la base.
-- Cron VM : possible via crontab sur la machine qui heberge la base/MLflow.
-
-## Test local avec docker-compose
-
-Le repository fournit un service `mlflow` dans `docker-compose.yml` pour tester
-localement un serveur MLflow (tracking + artifact store). Procédure minimale :
-
-1. Démarrer la base et le serveur MLflow :
-
-```bash
-# démarre PostgreSQL et MLflow (construit l'image services/ml si nécessaire)
-docker compose up -d db mlflow
-```
-
-2. Appliquer les migrations et données de démonstration :
-
-```bash
-# lance le job qui applique les migrations (s'arrête lorsqu'il a fini)
-docker compose up migrate
-```
-
-3. Lancer (optionnel) l'API et le front :
-
-```bash
-docker compose up -d api web
-```
-
-4. Entraîner et enregistrer les modèles dans MLflow :
-
-Le conteneur `mlflow` démarre maintenant le serveur MLflow puis exécute
-automatiquement un entraînement à partir du CSV inclus (`services/ml/donnees.csv`).
-Par défaut il force `--min-train-rows 1` pour permettre un seed local.
-
-Démarrage et entraînement :
-
-```bash
-# démarre le serveur MLflow (le conteneur exécutera ensuite l'entraînement CSV)
-docker compose up -d mlflow
-```
-
-Personnaliser l'appel d'entraînement via la variable d'environnement `TRAIN_ARGS` :
+L'intégration utilise le point d'extension serveur officiel `mlflow.app`
+(`--app-name enervision`) de **MLflow 3.16.0**, version épinglée et vérifiée.
+La factory étend les routes Flask puis utilise `create_fastapi_app` fourni par
+cette version de MLflow pour les servir avec son serveur Uvicorn par défaut :
+les routes natives ASGI, le proxy d'artefacts et la sécurité MLflow sont conservés.
+Les hôtes autorisés sont localhost, 127.0.0.1 et le service Compose `mlflow` ;
+adapter explicitement cette liste dans `start.py` pour un domaine de déploiement.
+Les modèles conservent la sérialisation CloudPickle utilisée par les clients MLflow 2.
+C'est une extension EnerVision, pas l'interface native Databricks ni un plugin
+frontend officiel : seul le HTML d'accueil reçoit un lien de navigation, sans
+modifier les bundles JavaScript. La page et les API sont des routes Flask du
+même serveur, port et origine ; aucun serveur ni conteneur supplémentaire.
+Les POST imposent origine identique et jeton CSRF. Cela ne remplace pas
+l'authentification : conserver la liaison localhost ou protéger tout le serveur
+par une passerelle authentifiée avant exposition réseau.
 
 ```bash
-# exemple : changer le nombre de mois d'entraînement
-TRAIN_ARGS="--csv donnees.csv --train-months 22 --holdout-months 2 --min-train-rows 1" docker compose up -d mlflow
+# Nouvelle version, sans redemarrer le serveur ni creer un autre conteneur
+docker compose exec mlflow python main.py --holdout-minutes 120
+docker compose logs mlflow
 ```
 
-Pour exécuter ponctuellement sans redémarrer le serveur :
+Une erreur d'entrainement au démarrage arrete le conteneur avec un code non nul (pas de boucle
+de redemarrage automatique). SIGTERM/SIGINT sont transmis aux groupes de
+processus ; l'arret de MLflow interrompt aussi l'entrainement.
+Une erreur d'un job manuel est enregistrée comme `FAILED` sans arrêter MLflow ;
+les détails techniques restent dans les logs du conteneur.
 
-```bash
-# exécute le script d'entraînement dans le conteneur mlflow
-docker compose run --rm mlflow python main.py --csv services/ml/donnees.csv --min-train-rows 1
-```
+SQLite est persiste dans `mlflow_data` a `/mlflow/mlflow.db`. Les artefacts sont
+dans le bucket `mlflow-artifacts` du volume `minio_data`. MLflow sert de proxy
+HTTP : l'API et les clients n'ont besoin que de `MLFLOW_TRACKING_URI`, pas des
+identifiants MinIO. Les ports sont limites a localhost.
 
-5. Accéder à l'interface MLflow : http://127.0.0.1:5000 (ou http://<host>:5000 si vous exposez le port)
-
-Les artefacts (artéfacts MLflow + sqlite backend store) sont persistés dans le
-volume Docker `mlflow_data`.
-
-Remarques :
-- Le backend attend la variable d'environnement `DATABASE_URL` ; docker-compose
-  injecte la connexion au service `db` par défaut. Pour pointer un MLflow
-  distant, définissez `MLFLOW_TRACKING_URI` dans votre `.env`.
-- Pour exécuter les entraînements depuis Databricks, configurez `MLFLOW_TRACKING_URI`
-  dans votre notebook vers l'URL publique/accessible de ce serveur MLflow (ex: http://<host>:5000).
-- Le modèle loggé conserve ses dépendances dans l'objet enregistré — le backend
-  devra disposer des mêmes packages pour charger les modèles via mlflow.pyfunc
-  (scikit-learn, etc.).
-
-Databricks / usage local
-
-- Le compose fournit MinIO comme magasin d'artefacts S3 et MLflow exposé sur le
-  port ${MLFLOW_HOST_PORT:-5000}. Assurez-vous que Databricks (ou votre
-  notebook local via Databricks Connect) peut joindre ce host/port.
-
-- Exemple rapide (notebook Databricks / Databricks Connect) :
-
-```python
-import mlflow
-
-mlflow.set_tracking_uri("http://<host>:5000")
-mlflow.set_experiment("EnerVision_Pred_Conso")
-# installer seo-features dans le cluster (ou pip install depuis votre repo)
-# lancer le script d'entraînement (le même code que services/ml/main.py ou
-# utiliser services/ml/databricks_example.py fourni)
-```
-
-- Le fichier `services/ml/databricks_example.py` contient un exemple prêt à
-  exécuter qui charge la table `readings` et entraîne/enregistre un modèle pour
-  `site1`. Copier-coller les cellules dans un notebook Databricks fonctionne
-  très bien.
-
-Remarque : pour un usage multi-utilisateur/CI, préférez un stockage d'artefacts
-à distance (S3 réel) et protégez l'accès à MLflow (TLS + authent). Si vous
-voulez, j'ajoute l'exemple de notebook Databricks formaté (.dbc) ou un script
-pour créer la dépendance `seo-features` sur le cluster.
+Les anciens experiments utilisant une URI `s3://` ne sont pas convertis par
+un changement de configuration serveur. Creer un nouvel experiment avec
+`--experiment <nouveau-nom>` pour publier avec le proxy ; conserver les anciens
+volumes et migrer leurs artefacts separement si necessaire.
+Un ancien SQLite relatif situe hors volume n'est pas migre automatiquement.
