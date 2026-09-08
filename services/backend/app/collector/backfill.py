@@ -16,6 +16,7 @@ donc de lui-meme.
 import argparse
 import json
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -31,72 +32,156 @@ LOGGER = logging.getLogger(__name__)
 WINDOW_MINUTES = 1000  # 1000 points sur 1000 minutes = 1 point/minute
 TIMEOUT_SECONDS = 60
 
+# Delais entre deux tentatives sur une meme fenetre, en secondes. Une reprise de
+# deux ans represente un millier de fenetres par site : sans nouvelle tentative,
+# une seule coupure reseau passagere suffit a perdre tout le travail du site.
+RETRY_DELAYS = (2.0, 5.0)
+
+# Une ligne de journal toutes les N fenetres. Un run de plusieurs dizaines de
+# minutes sans trace ne se distingue pas d un run bloque.
+PROGRESS_EVERY_WINDOWS = 50
+
 
 class Backfill:
     """Reprise de l historique d un seul site."""
 
-    def __init__(self, storage, api_client, site_id: str, days: int | None = None):
+    def __init__(
+        self,
+        storage,
+        api_client,
+        site_id: str,
+        days: int | None = None,
+        retry_delays: Sequence[float] = RETRY_DELAYS,
+    ):
         self.storage = storage
         self.api_client = api_client
         self.site_id = site_id
         self.days = settings.backfill_days if days is None else days
+        self.retry_delays = tuple(retry_delays)
 
     def run(self) -> int:
         """Rend le nombre de mesures reellement inserees.
 
-        Tout ou rien pour ce site : les fenetres sont d abord toutes lues, puis
-        ecrites en un seul appel, donc dans une seule transaction. Un site dont
-        la source coupe a mi-parcours ne laisse aucune ligne, il se distingue
-        donc d un site repris. C est cette propriete qui permet a la garde de
-        raisonner par site, et au demarrage suivant de reprendre celui qui a
-        echoue au lieu de le laisser a moitie repris pour toujours.
+        Chaque fenetre est ecrite des qu elle est lue, et non conservee jusqu a
+        la fin. Sur deux ans, tout garder en memoire represente environ un
+        million d entrees par site, de l ordre du gigaoctet : le conteneur se
+        fait tuer avant d avoir ecrit la moindre ligne. En ecrivant au fil de
+        l eau, la memoire ne depend plus de la profondeur demandee.
 
-        Les appels restent hors de la transaction : la tenir ouverte le temps
-        d une dizaine d allers-retours reseau bloquerait le nettoyage de la
-        table pour rien.
+        Ce qui a ete lu est garde, meme si une fenetre suivante echoue. Rien ne
+        rend la fenetre 151 dependante de la 150, et jeter cent cinquante
+        fenetres deja obtenues pour une coupure de deux secondes serait du
+        gachis. C est la garde de already_backfilled_sites qui rattrape le
+        manque : elle mesure jusqu ou remonte l historique, donc un site
+        incomplet est repris au passage suivant.
+
+        Les appels restent hors de toute transaction longue : chaque fenetre a
+        la sienne, tenir une transaction ouverte le temps d un millier d
+        allers-retours reseau bloquerait le nettoyage de la table pour rien.
         """
         end = datetime.now().replace(second=0, microsecond=0)
         start = end - timedelta(days=self.days)
 
-        measurements = []
+        inserted_count = 0
+        windows_read = 0
         cursor = start
-        while cursor < end:
-            window_end = min(cursor + timedelta(minutes=WINDOW_MINUTES), end)
-            limit = int((window_end - cursor).total_seconds() / 60)
-            measurements.extend(self.api_client(self.site_id, cursor, window_end, limit))
-            cursor = window_end
-
-        # Une insertion par lot et non une par mesure : la reprise ecrit des
-        # dizaines de milliers de lignes.
-        inserted_count = self.storage.store_raw_many(
-            "api_backfill", [json.dumps(measurement) for measurement in measurements]
-        )
+        try:
+            while cursor < end:
+                window_end = min(cursor + timedelta(minutes=WINDOW_MINUTES), end)
+                limit = int((window_end - cursor).total_seconds() / 60)
+                measurements = self._read_window(cursor, window_end, limit)
+                inserted_count += self.storage.store_raw_many(
+                    "api_backfill", [json.dumps(measurement) for measurement in measurements]
+                )
+                cursor = window_end
+                windows_read += 1
+                if windows_read % PROGRESS_EVERY_WINDOWS == 0:
+                    LOGGER.info(
+                        "Site %s: %d fenetre(s) lues, %d mesure(s) ecrites, jusqu au %s",
+                        self.site_id,
+                        windows_read,
+                        inserted_count,
+                        window_end.isoformat(timespec="minutes"),
+                    )
+        except Exception:
+            LOGGER.error(
+                "Site %s: reprise interrompue apres %d fenetre(s), %d mesure(s) deja ecrites",
+                self.site_id,
+                windows_read,
+                inserted_count,
+            )
+            raise
 
         LOGGER.info(
             "Site %s: %d mesure(s) reprises sur %d jour(s)", self.site_id, inserted_count, self.days
         )
         return inserted_count
 
+    def _read_window(self, start_time: datetime, end_time: datetime, limit: int):
+        """Lit une fenetre, en retentant selon retry_delays avant d abandonner.
 
-def already_backfilled_sites(storage) -> set[str]:
-    """Les sites qui ont deja leur historique en base.
+        L abandon efface tout le site, donc mieux vaut insister un peu ici que
+        de refaire un millier de fenetres pour une coupure de deux secondes.
+        """
+        attempts = len(self.retry_delays) + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.api_client(self.site_id, start_time, end_time, limit)
+            except Exception:
+                if attempt == attempts:
+                    raise
+                delay = self.retry_delays[attempt - 1]
+                LOGGER.warning(
+                    "Site %s: fenetre %s en echec (tentative %d/%d), nouvel essai dans %.0fs",
+                    self.site_id,
+                    start_time.isoformat(timespec="minutes"),
+                    attempt,
+                    attempts,
+                    delay,
+                )
+                time.sleep(delay)
 
-    L endpoint historique regenere les donnees a chaque appel : reprendre un
-    site deja repris melangerait deux generations dans la meme serie. La garde
-    protege de cela, pas des doublons, dont la cle unique se charge deja.
 
-    Elle est par site, et non globale. Globale, un seul site repris suffisait a
-    declarer toute la reprise faite : un site en echec n etait alors jamais
-    repris, meme au demarrage suivant, et son historique manquait pour de bon.
+def already_backfilled_sites(storage, days: int | None = None) -> set[str]:
+    """Les sites dont l historique remonte deja assez loin pour la profondeur demandee.
+
+    La garde mesure une couverture, pas une presence. Un site n est considere
+    comme repris que si sa plus ancienne mesure atteint la profondeur demandee.
+    Deux consequences voulues.
+
+    Un site interrompu en cours de reprise garde ce qu il a lu, mais reste
+    incomplet, donc le passage suivant va chercher ce qui manque au lieu de le
+    sauter pour toujours.
+
+    Et augmenter BACKFILL_DAYS reprend le complement. Une pile demarree une
+    fois avec sept jours ne bloque pas une reprise a deux ans : les sites ne
+    couvrent pas la nouvelle profondeur, ils sont redemandes. Avec une garde
+    fondee sur la simple presence de lignes, ils auraient tous ete sautes en
+    silence.
+
+    Le prix a connaitre : l endpoint historique regenere les donnees a chaque
+    appel, donc completer un site melange deux generations dans sa serie, avec
+    une discontinuite au point de reprise. C est moins couteux que de perdre
+    l historique deja obtenu, ou de croire complet un site qui ne l est pas.
 
     Seules les lignes de source api_backfill comptent. Le collecteur ecrit lui
     aussi dans raw_readings, et compter ses lignes ferait passer pour repris un
     site dont on n a que les dernieres minutes.
     """
+    depth = settings.backfill_days if days is None else days
+    earliest_needed = (
+        datetime.now().replace(second=0, microsecond=0) - timedelta(days=depth)
+    ).isoformat(timespec="seconds")
     with storage.engine.connect() as conn:
         return set(
             conn.execute(
-                text("SELECT DISTINCT site_id FROM raw_readings WHERE source = 'api_backfill'")
+                text(
+                    "SELECT site_id FROM raw_readings "
+                    "WHERE source = 'api_backfill' "
+                    "GROUP BY site_id "
+                    "HAVING MIN(measured_at) <= :earliest"
+                ),
+                {"earliest": earliest_needed},
             ).scalars()
         )
 
@@ -117,6 +202,7 @@ def run_backfill(
     site_ids: Sequence[str],
     days: int | None = None,
     force: bool = False,
+    retry_delays: Sequence[float] = RETRY_DELAYS,
 ) -> BackfillCounts:
     """Reprend l historique des sites qui n ont pas encore le leur.
 
@@ -125,7 +211,8 @@ def run_backfill(
     dans le compte rendu, et comme un site en echec ne laisse aucune ligne, le
     demarrage suivant le reprend de lui-meme.
     """
-    already_backfilled = set() if force else already_backfilled_sites(storage)
+    depth = settings.backfill_days if days is None else days
+    already_backfilled = set() if force else already_backfilled_sites(storage, depth)
 
     inserted = 0
     backfilled: list[str] = []
@@ -136,7 +223,7 @@ def run_backfill(
             skipped.append(site_id)
             continue
         try:
-            inserted += Backfill(storage, api_client, site_id, days).run()
+            inserted += Backfill(storage, api_client, site_id, depth, retry_delays).run()
             backfilled.append(site_id)
         except Exception:
             LOGGER.exception("Reprise du site %s abandonnee", site_id)
