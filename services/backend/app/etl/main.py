@@ -14,7 +14,7 @@ import argparse
 import logging
 import time
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,8 +27,9 @@ from app.etl.extract import (
     extract_latest_sensors,
     extract_latest_sites,
 )
-from app.etl.impute import refresh_profiles, repair_readings
+from app.etl.impute import refresh_profiles, repair_readings, repair_window_start
 from app.etl.load import load_readings, load_sensor_status, load_sites
+from app.etl.quality import compute_daily_quality, days_touched
 from app.etl.transform import transform_readings
 
 LOGGER = logging.getLogger(__name__)
@@ -89,10 +90,19 @@ def load_sensor_directory(db: Session) -> None:
     LOGGER.info("Capteurs: %d observation(s) ajoutee(s)", inserted)
 
 
-def transform_window(db: Session, window_start: datetime, window_end: datetime) -> PassCounts:
-    """Transforme la fenetre, lot par lot, et rend les compteurs du passage."""
+def transform_window(
+    db: Session, window_start: datetime, window_end: datetime
+) -> tuple[PassCounts, set[date]]:
+    """Transforme la fenetre, lot par lot.
+
+    Rend les compteurs du passage et les jours de mesure qu il a touches. Ces
+    jours se lisent sur measured_at, pas sur la fenetre : celle-ci porte sur la
+    reception, et une reprise d historique ecrit des mesures bien plus
+    anciennes que le moment ou elles sont arrivees.
+    """
     read = written = rejected = 0
     after_id = 0
+    days: set[date] = set()
 
     while True:
         rows = extract_from_raw_readings(
@@ -107,12 +117,13 @@ def transform_window(db: Session, window_start: datetime, window_end: datetime) 
         read += len(rows)
         written += loaded.inserted_count
         rejected += transformed.rejected_count
+        days.update(reading.timestamp.astimezone(UTC).date() for reading in transformed.readings)
         after_id = rows[-1].id
 
         if len(rows) < settings.etl_batch_size:
             break
 
-    return PassCounts(read=read, written=written, rejected=rejected)
+    return PassCounts(read=read, written=written, rejected=rejected), days
 
 
 def record_run(
@@ -153,13 +164,19 @@ def run_once(since: datetime | None = None) -> int:
             window_start, window_end = compute_window(db, since)
             load_site_directory(db)
             load_sensor_directory(db)
-            counts = transform_window(db, window_start, window_end)
+            counts, days = transform_window(db, window_start, window_end)
             # La reparation vient apres le chargement : une valeur nulle se
             # repare des que la mesure suivante est en base, donc au passage qui
             # vient de l ecrire.
             refresh_profiles(db)
             imputed = repair_readings(db, since)
             counts = replace(counts, imputed=imputed)
+            # Le resume quotidien vient apres la reparation : il compte ce que
+            # le chargement et la reparation ont laisse en base. Aux jours
+            # charges s ajoutent ceux de la fenetre de reparation, qui a pu
+            # remplir des valeurs sans qu aucune mesure nouvelle n arrive.
+            days |= days_touched(repair_window_start(since, window_end), window_end)
+            compute_daily_quality(db, days)
             record_run(db, started_at, window_start, window_end, counts, "ok")
     # Large volontairement : un passage rate ne doit ni tuer la boucle ni
     # laisser la trace de l echec de cote.

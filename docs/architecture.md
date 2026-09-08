@@ -73,7 +73,12 @@ Un site injoignable est journalisé et sauté : les autres sont quand même coll
 2. historise `sensor_status` depuis le dernier instantané `api_sensors` ;
 3. transforme les mesures brutes de sa fenêtre et les charge dans `readings` ;
 4. répare les valeurs nulles refermées ;
-5. écrit sa trace dans `etl_runs`.
+5. recalcule `data_quality_daily` pour les jours qu'il vient de toucher ;
+6. écrit sa trace dans `etl_runs`.
+
+Le résumé quotidien vient en avant-dernier parce qu'il compte ce que les étapes précédentes
+ont laissé en base. Sans lui, la page « Qualité des données » resterait vide alors que les
+mesures sont bien là.
 
 ### Les deux fenêtres de l'ETL
 

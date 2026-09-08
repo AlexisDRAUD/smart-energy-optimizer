@@ -218,11 +218,16 @@ Un résumé par site et par jour, écrit a la fin de chaque passe pour les jours
 graphe du dashboard le lit directement, il ne rescanne pas des millions de lignes a chaque
 affichage.
 
+Les jours touchés se lisent sur `measured_at`, pas sur la fenêtre de réception : une reprise
+d'historique écrit des mesures bien plus anciennes que le moment ou elles arrivent. S'y
+ajoutent les jours de la fenêtre de réparation, qui remplit des valeurs sans qu'aucune mesure
+nouvelle n'arrive.
+
 | Colonne | Type | Note |
 |---|---|---|
 | `site_id` | `text` | |
 | `day` | `date` | jour en temps universel |
-| `expected_points` | `integer` | 1440 pour une journée complète au pas d'une minute |
+| `expected_points` | `integer` | 1440 pour une journée révolue, au pas d'une minute |
 | `received_points` | `integer` | |
 | `missing_points` | `integer` | attendus moins recus, c'est le trou de collecte |
 | `null_points` | `integer` | recus mais sans valeur de consommation |
@@ -230,6 +235,18 @@ affichage.
 | `computed_at` | `timestamptz` | |
 
 Clé unique sur `(site_id, day)`.
+
+Le jour en cours n'attend que les minutes déja écoulées. En attendre 1440 des minuit ferait
+passer la journée qui n'a pas encore eu lieu pour un trou de collecte, et le dashboard
+signalerait des données incomplètes jusqu'au soir.
+
+Un site du référentiel qui n'a rien remonté de la journée recoit quand meme sa ligne, a zéro
+recu. C'est le seul endroit ou ce trou-la se lit : sans ligne, le site disparait simplement du
+graphe. Un site présent dans les mesures mais absent du référentiel est résumé lui aussi,
+`readings` n'ayant pas de clé étrangère vers `sites`.
+
+Le calcul est un dénombrement de `readings`, il ne dépend d'aucun état : repasser sur un jour
+déja résumé récrit exactement les memes chiffres.
 
 N'y va pas : le calcul des variables d'entrée du modèle, il est dans `packages/features`.
 

@@ -222,6 +222,18 @@ def _reparer_un_site(db: Session, site_id: str, profil: str, depuis: datetime) -
     return resultat.rowcount
 
 
+def repair_window_start(since: datetime | None = None, now: datetime | None = None) -> datetime:
+    """Debut de la fenetre de reparation d un passage.
+
+    Expose a part parce que l appelant en a besoin lui aussi : ce sont les
+    jours de cette fenetre que le resume quotidien doit recalculer, une
+    reparation changeant le compte des valeurs imputees.
+    """
+    if since is not None:
+        return since
+    return (now or datetime.now(UTC)) - timedelta(minutes=settings.imputation_window_minutes)
+
+
 def repair_readings(db: Session, since: datetime | None = None) -> int:
     """Repare les valeurs nulles de tous les sites au profil connu.
 
@@ -229,7 +241,7 @@ def repair_readings(db: Session, since: datetime | None = None) -> int:
     pas repare : c est ce qui protege un historique douteux sans qu aucun
     identifiant de site figure dans le code.
     """
-    depuis = since or datetime.now(UTC) - timedelta(minutes=settings.imputation_window_minutes)
+    depuis = repair_window_start(since)
 
     sites = db.execute(
         text(
