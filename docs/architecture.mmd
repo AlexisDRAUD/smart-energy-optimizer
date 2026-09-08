@@ -1,22 +1,24 @@
-%% Smart Energy Optimizer - architecture de realisation (equipe) - 01/09/2026
-%% En grise et en pointilles : ce qui est decide mais repousse (modele, MLflow,
-%% canal d'alerte sortant). Voir docs/decisions.md.
+%% Smart Energy Optimizer - architecture de realisation - mis a jour le 07/09/2026
+%% En grise et en pointilles : ce qui est decide mais pas fait (modele, MLflow,
+%% canal d'alerte sortant, import des CSV).
 %% A coller sur https://mermaid.live
 flowchart LR
-    CSV["Fichiers CSV 2023-2024<br/>fournis par le formateur"]
-    SRC["API mock<br/>/readings (reprise unique)<br/>/current (temps reel)"]
+    CSV["Fichiers CSV 2023-2024<br/>fournis par le formateur<br/>import non fait"]
+    SRC["API de la source<br/>/readings (reprise unique)<br/>/current (temps reel)<br/>/sites et /sensors/status"]
 
     subgraph INGEST["Ingestion"]
-        BOOT["Scripts d'amorcage<br/>import CSV + reprise historique<br/>execution unique"]
-        POLL["Collecteur permanent<br/>/current toutes les minutes"]
+        BOOT["Reprise d'historique<br/>au premier demarrage<br/>BACKFILL_DAYS jours, garde anti-rejeu"]
+        POLL["Collecteur permanent<br/>toutes les minutes"]
     end
 
     subgraph DB["PostgreSQL"]
-        RAW[("Couche brute<br/>JSONB, append only")]
-        CLEAN[("Couche transformee<br/>tables typees + index")]
+        RAW[("raw_readings<br/>JSONB, insertion seulement")]
+        SNAP[("raw_snapshots<br/>referentiels sites et capteurs")]
+        CLEAN[("Couche transformee<br/>sites, readings, sensor_status")]
+        RUNS[("etl_runs<br/>avancement de l'ETL")]
     end
 
-    TR["Job ETL Python<br/>toutes les minutes<br/>fenetre glissante 30 min"]
+    TR["Job ETL Python<br/>toutes les minutes<br/>lecture du brut : fenetre 2 min<br/>reparation : fenetre 30 min"]
 
     subgraph ML["Machine learning"]
         FEAT["Paquet commun<br/>calcul des variables"]
@@ -25,17 +27,22 @@ flowchart LR
     end
 
     BACK["Backend FastAPI<br/>REST + JWT<br/>boucle de prediction H+2<br/>toutes les minutes"]
-    FRONT["Front React"]
-    NOTIF["Canal sortant<br/>hors perimetre pour l'instant<br/>voir decision 15"]
-    CI["CI/CD GitHub Actions<br/>lint, tests, scan, deploiement"]
+    FRONT["Front React<br/>servi par nginx"]
+    NOTIF["Canal sortant<br/>hors perimetre"]
+    CI["CI/CD GitHub Actions<br/>lint, tests, scan Trivy, publication"]
 
-    CSV --> BOOT
+    CSV -.-> BOOT
     SRC --> BOOT
     SRC --> POLL
     BOOT --> RAW
+    BOOT --> SNAP
     POLL --> RAW
+    POLL --> SNAP
     RAW --> TR
+    SNAP --> TR
+    RUNS --> TR
     TR --> CLEAN
+    TR --> RUNS
     CLEAN -.-> TRAIN
     FEAT -.-> TRAIN
     FEAT --> BACK
@@ -51,6 +58,6 @@ flowchart LR
     classDef store fill:#eef4ff,stroke:#4a6fa5,color:#12203a
     classDef later fill:#f4f4f6,stroke:#a8adb7,color:#5a6472,stroke-dasharray:4 3
     classDef proc fill:#ffffff,stroke:#5a6472,color:#12203a
-    class RAW,CLEAN store
-    class BOOT,POLL,TR,FEAT,BACK,FRONT,CI,CSV,SRC proc
-    class TRAIN,MLF,NOTIF later
+    class RAW,SNAP,CLEAN,RUNS store
+    class BOOT,POLL,TR,FEAT,BACK,FRONT,CI,SRC proc
+    class TRAIN,MLF,NOTIF,CSV later

@@ -127,4 +127,4 @@ trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
 ```
 
 Le pre-commit (`ruff`, fins de fichier, cle privee, marqueurs de conflit) couvre
-deja une partie du `backend-lint` avant meme le commit ; voir `quality.md`.
+deja une partie du `backend-lint` avant meme le commit ; voir `tests-et-qualite.md`.

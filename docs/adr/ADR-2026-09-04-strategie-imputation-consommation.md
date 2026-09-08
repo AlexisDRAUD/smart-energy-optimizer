@@ -1,7 +1,12 @@
 # ADR-2026-09-04 — Stratégie d’imputation de la consommation
 
-- Statut : accepté pour l’expérimentation, non activé en production
-- Date : 2026-09-04
+- Statut : **activé en production le 2026-09-07**
+- Date : 2026-09-04, activation le 2026-09-07
+
+> Les sections « Contexte », « Décision », « Traçabilité » et « Conséquences » décrivent l'état
+> du 2026-09-04, quand la stratégie était retenue mais pas branchée. Elles sont conservées telles
+> quelles pour la traçabilité. **Ce qui vaut aujourd'hui est décrit dans « Activation du
+> 2026-09-07 », en fin de document**, y compris pour `SITE004` et `SITE007`.
 
 ## Contexte
 
@@ -86,3 +91,54 @@ La décision est reproductible et explicable par site, mais elle ne vaut pas enc
 production. Les seuils restent provisoires et devront être validés sur un historique fiable avant
 toute connexion à l’ETL. Le traitement à appliquer à `SITE004` et `SITE007` demeure suspendu à la
 mise à disposition ou à la validation d’un historique exploitable.
+
+*Paragraphe dépassé depuis le 2026-09-07 : la validation a eu lieu, voir la section suivante.*
+
+## Activation du 2026-09-07
+
+La condition posée par cet ADR était : « les seuils restent provisoires et devront être validés
+sur un historique fiable avant toute connexion à l'ETL ». Elle est levée.
+
+Le backtest a été rejoué sur sept jours de mesures réelles reprises depuis l'API de la source,
+soit 70 560 lignes, et non sur les CSV. Résultat :
+
+| Site | Profil | Points testés | MAE linéaire % | MAE report % | Gain % |
+|---|---|---:|---:|---:|---:|
+| SITE001 | variable | 46 891 | 2,46 | 2,81 | 12,31 |
+| SITE002 | variable | 45 878 | 2,64 | 2,99 | 11,53 |
+| SITE003 | variable | 46 700 | 4,09 | 4,60 | 11,17 |
+| SITE004 | variable | 46 746 | 3,03 | 3,44 | 11,94 |
+| SITE005 | variable | 45 708 | 4,01 | 4,55 | 11,79 |
+| SITE006 | variable | 46 612 | 2,48 | 2,82 | 11,96 |
+| SITE007 | variable | 46 593 | 2,70 | 3,08 | 12,19 |
+
+Chaque site dépasse largement les 100 points requis, reste sous les 10 % d'erreur normalisée et
+gagne plus de 10 % avec l'interpolation. Les sept sites sont donc classés `variable`, et la
+méthode retenue est l'interpolation linéaire.
+
+### Sur l'exclusion de SITE004 et SITE007
+
+Cet ADR les excluait, leurs historiques étant confirmés invalides. Cette exclusion portait sur
+les CSV de 2023-2024, que le projet n'utilise pas. Sur l'historique de l'API, ces deux sites se
+classent comme les cinq autres, avec 46 746 et 46 593 points testés.
+
+Ils sont donc traités comme les autres, sans qu'aucun identifiant de site figure dans le code,
+conformément à cet ADR. La protection reste en place et reste générique : un site dont les
+données se dégradent sort `unknown` au recalcul suivant et **cesse aussitôt d'être imputé**.
+
+### Ce qui a été branché
+
+Le profil de chaque site est rangé dans `sites.imputation_profile` et recalculé toutes les
+24 heures par l'ETL. La réparation tourne à chaque passage, sur les 30 dernières minutes de
+`readings`.
+
+Les trois règles de sûreté sont tenues par le code, pas par convention :
+
+- le calcul part de `consumption_kwh_raw`, jamais de `consumption_kwh` ;
+- l'écriture porte `WHERE consumption_kwh_raw IS NULL`, donc une valeur réelle n'est jamais
+  écrasée ;
+- un trou ouvert, qui touche l'instant présent, n'est pas comblé.
+
+Mesure de contrôle sur les sept jours repris : **4 173 valeurs nulles réparées sur 4 176**. Les
+trois restantes sont les mesures les plus récentes de la base, des trous encore ouverts. Rejouer
+la réparation ne modifie plus aucune ligne et n'en recompte aucune.

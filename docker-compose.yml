@@ -1,26 +1,45 @@
-# Environnement de travail local. Une seule commande : docker compose up
+# Un seul fichier pour le poste local et pour la VM. Une seule commande :
+# docker compose up. Tout ce qui differe entre les deux passe par le .env, jamais
+# par ce fichier : un second compose ne se testerait nulle part et divergerait.
 #
 # Ordre de demarrage :
-#   db  ->  migrate (schema Alembic + donnees de demonstration)  ->  api / etl
+#   db  ->  migrate (schema Alembic, comptes, reprise d historique)
+#        ->  api, collector, etl  ->  web
 #
-# Trois images seulement : backend, ml, web. L image backend est lancee
-# plusieurs fois avec des commandes differentes, parce que l API, le collecteur
-# et l ETL partagent la meme base, le meme code et la meme cadence de livraison.
-# Ils restent dans des conteneurs separes : le collecteur qui plante ne doit pas
-# emporter le dashboard.
+# Deux images ici : backend et web. L image backend est lancee quatre fois avec
+# des commandes differentes, parce que l API, le collecteur et l ETL partagent la
+# meme base, le meme code et la meme cadence de livraison. Ils restent dans des
+# conteneurs separes : le collecteur qui plante ne doit pas emporter le dashboard.
+# L image ml existe dans services/ml/ mais n est pas encore branchee ici.
 #
 # Le schema n existe que dans services/backend/alembic/versions/. Aucun fichier
 # SQL n est joue par l image PostgreSQL au premier demarrage.
+#
+# Voir docs/architecture.md et docs/configuration.md.
 
 x-backend: &backend
   image: smart-energy-optimizer-backend:local
   pull_policy: never
+  # Tout reglage qui peut differer entre le poste local et la VM passe par ici,
+  # et par le .env. Un reglage absent de ce bloc n atteint jamais les conteneurs :
+  # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
+  # signale.
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
     SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}
+    ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+    REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+    # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
+    COOKIE_SECURE: ${COOKIE_SECURE:-false}
     SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:-http://127.0.0.1:8000}
     MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+    COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-60}
+    BACKFILL_DAYS: ${BACKFILL_DAYS:-7}
+    ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
+    ETL_BATCH_SIZE: ${ETL_BATCH_SIZE:-1000}
+    ETL_WINDOW_OVERLAP_MINUTES: ${ETL_WINDOW_OVERLAP_MINUTES:-30}
+    PREDICTION_REFRESH_INTERVAL_SECONDS: ${PREDICTION_REFRESH_INTERVAL_SECONDS:-60}
 
 services:
   db:
@@ -39,8 +58,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # Applique le schema puis les donnees de demonstration, et s arrete.
-  # Les autres conteneurs attendent qu il se termine sans erreur.
+  # Applique le schema, cree les comptes, reprend l historique, puis s arrete.
+  # Les autres conteneurs attendent qu il se termine sans erreur, d ou la reprise
+  # rendue non bloquante dans le script : une source injoignable ne doit pas
+  # laisser toute la pile a l arret.
   migrate:
     <<: *backend
     # Un seul build pour l image partagee par migrate, api, collector et etl.
@@ -51,7 +72,6 @@ services:
     command: ["./scripts/prepare-database.sh"]
     environment:
       <<: *backend-env
-      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-1}
       DATABASE_WAIT_SECONDS: ${DATABASE_WAIT_SECONDS:-30}
     depends_on:
       db:
@@ -80,35 +100,22 @@ services:
     build:
       context: ./services/web
       args:
-        VITE_BACK_API_URL: ""
+        VITE_BACK_API_URL: ${VITE_BACK_API_URL:-}
     image: smart-energy-optimizer-web:local
     depends_on:
       api:
         condition: service_healthy
+    # WEB_BIND reste a 127.0.0.1 en local, ce qui limite l acces a la machine.
+    # Sur la VM, le .env le passe a 0.0.0.0 pour que le dashboard soit joignable.
     ports:
-      - "127.0.0.1:${WEB_PORT:-80}:80"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-80}:80"
+    restart: unless-stopped
 
-  # Le collecteur sera decommenté quand sa boucle sera integree a cette image.
-  # collector:
-  #   <<: *backend
-  #   command: ["python", "-m", "app.collector"]
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
-
-  # Execution ponctuelle : docker compose run --rm etl
-  etl:
-    <<: *backend
-    command: ["python", "-m", "app.etl"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    restart: "no"
-  # Le collecteur et l ETL sont decommentes quand leur code arrive. Meme image,
-  # commande differente. Ils gardent restart: unless-stopped, la cadence venant
-  # d une boucle dans le processus et non d un ordonnanceur (decision 26).
-  #
+  # Le collecteur et l ETL : meme image que l API, commande differente. Ils
+  # gardent restart: unless-stopped, la cadence venant d une boucle dans le
+  # processus et non d un ordonnanceur. Pas de cron a installer, et un processus
+  # arrete ne rattrape rien, ce qui est coherent avec notre position sur les
+  # trous de collecte.
   collector:
     <<: *backend
     command: ["python", "-m", "app.collector"]
@@ -116,14 +123,14 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
-  #
-  # etl:
-  #   <<: *backend
-  #   command: ["python", "-m", "app.etl"]
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
+
+  etl:
+    <<: *backend
+    command: ["python", "-m", "app.etl"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   mlflow:
     build:
