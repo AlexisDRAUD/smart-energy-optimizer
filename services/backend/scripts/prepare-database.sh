@@ -27,17 +27,22 @@ python -m alembic upgrade head
 printf '%s\n' 'Creation des comptes de demonstration...'
 python -m app.db.seed
 
-# Reprise de l historique au tout premier demarrage. Le module ne fait rien si
-# des mesures brutes existent deja : l endpoint historique regenere les donnees
-# a chaque appel, une seconde reprise ecrirait d autres valeurs.
+# Reprise de l historique des sites qui n ont pas encore le leur. Le module
+# saute ceux qui l ont deja : l endpoint historique regenere les donnees a
+# chaque appel, reprendre deux fois le meme site melangerait deux generations.
 #
-# L echec est volontairement non bloquant. Les conteneurs api, etl et collector
-# attendent que celui-ci se termine SANS ERREUR : une source injoignable
-# laisserait sinon toute la pile a l arret, alors qu un historique manquant
-# n empeche ni le collecteur ni le dashboard de fonctionner.
+# Il sort en erreur des qu un site echoue, sinon une reprise partielle passerait
+# pour une reussite. Rien n est perdu : un site en echec n a laisse aucune
+# ligne, le prochain demarrage le reprend tout seul.
+#
+# L echec est volontairement non bloquant ici. Les conteneurs api, etl et
+# collector attendent que celui-ci se termine SANS ERREUR : une source
+# injoignable laisserait sinon toute la pile a l arret, alors qu un historique
+# manquant n empeche ni le collecteur ni le dashboard de fonctionner.
 printf '%s\n' 'Reprise de l historique...'
 if ! python -m app.collector.backfill; then
-  printf '%s\n' 'Reprise en echec. Le collecteur prendra le relais en temps reel.' >&2
+  printf '%s\n' 'Reprise incomplete. Le collecteur prend le relais en temps reel,' >&2
+  printf '%s\n' 'les sites manquants seront repris au prochain demarrage.' >&2
 fi
 
 printf '%s\n' 'Base prete.'

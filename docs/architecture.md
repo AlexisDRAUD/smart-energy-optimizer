@@ -106,14 +106,29 @@ rejouable autant de fois qu'on veut, ce qui est sa seule raison d'exister.
 Au tout premier démarrage, `migrate` reprend l'historique de chaque site sur `BACKFILL_DAYS`
 jours, par fenêtres de 1000 minutes et insertions par lot.
 
-Elle ne fait rien si `raw_readings` contient déjà une ligne. Ce n'est pas une protection contre
-les doublons, dont la clé unique se charge, mais contre le **rejeu** : l'endpoint historique de
-la source régénère ses données à chaque appel, une seconde reprise écrirait des valeurs
-différentes de celles déjà en base.
+Elle saute les sites qui ont déjà leur historique. Ce n'est pas une protection contre les
+doublons, dont la clé unique se charge, mais contre le **rejeu** : l'endpoint historique de la
+source régénère ses données à chaque appel, reprendre un site déjà repris mélangerait deux
+générations dans la même série.
 
-Son échec est volontairement non bloquant. `api`, `etl` et `collector` attendent que `migrate`
-se termine *sans erreur* : une source injoignable laisserait sinon toute la pile à l'arrêt,
-alors qu'un historique manquant n'empêche ni la collecte ni le dashboard.
+**La garde est par site, pas globale.** Globale, un seul site repris suffisait à déclarer toute
+la reprise faite : si la source refusait `SITE002` pendant que `SITE001` réussissait, `SITE002`
+n'était plus jamais repris, et son historique manquait pour de bon.
+
+Pour que cette garde soit exacte, la reprise d'un site est **tout ou rien** : ses fenêtres
+sont toutes lues, puis écrites en un seul appel, donc dans une seule transaction. Un site dont
+la source coupe à mi-parcours ne laisse aucune ligne, il ne peut donc pas passer pour repris.
+Les appels réseau restent hors de la transaction, la tenir ouverte le temps d'une dizaine
+d'allers-retours bloquerait le nettoyage de la table pour rien.
+
+Le job **sort en erreur si au moins un site échoue**, sinon une reprise partielle passerait pour
+une réussite dans le journal de démarrage. Rien n'est perdu pour autant : ces sites n'ont laissé
+aucune ligne, le démarrage suivant les reprend sans intervention.
+
+Cet échec est volontairement non bloquant pour la pile. `api`, `etl` et `collector` attendent que
+`migrate` se termine *sans erreur*, et le script rattrape lui-même le code de retour de la
+reprise : une source injoignable laisserait sinon toute la pile à l'arrêt, alors qu'un historique
+manquant n'empêche ni la collecte ni le dashboard.
 
 ## Stockage
 

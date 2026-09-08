@@ -88,8 +88,9 @@ pas un client local.
 
 ## Amorçage
 
-Il est automatique. `migrate` reprend l'historique de tous les sites sur `BACKFILL_DAYS` jours
-au premier démarrage, et **ne fait rien** si `raw_readings` contient déjà une ligne.
+Il est automatique. `migrate` reprend l'historique sur `BACKFILL_DAYS` jours des sites qui n'ont
+pas encore le leur, et **saute** ceux déjà repris. Un site que la source a refusé n'a laissé
+aucune ligne : il est repris tout seul au démarrage suivant, et le journal de `migrate` le nomme.
 
 Pour le lancer à la main, par exemple sur un site précis ou avec une autre profondeur :
 
@@ -97,15 +98,19 @@ Pour le lancer à la main, par exemple sur un site précis ou avec une autre pro
 docker compose run --rm collector python -m app.collector.backfill --site SITE003 --days 2
 ```
 
-Pour forcer une reprise alors que la base contient déjà des mesures :
+Pour forcer la reprise d'un site qui a déjà son historique :
 
 ```bash
-docker compose run --rm collector python -m app.collector.backfill --force
+docker compose run --rm collector python -m app.collector.backfill --site SITE003 --force
 ```
 
-**Ne pas relancer la reprise pour combler un trou.** L'endpoint historique régénère les données
-à chaque appel : une deuxième reprise écrirait des valeurs différentes de celles déjà en base.
-La clé unique empêche les doublons, elle n'empêche pas l'incohérence.
+**Ne pas forcer la reprise pour combler un trou.** L'endpoint historique régénère les données à
+chaque appel : la clé unique garde les valeurs déjà en base et ne comble que les minutes
+absentes, avec des valeurs d'une autre génération. La série mélange alors deux tirages. Elle
+empêche les doublons, elle n'empêche pas l'incohérence.
+
+`--force` ne sert donc qu'à un site dont on veut jeter puis refaire l'historique, pas à en
+réparer un partiel.
 
 ## Rejouer une fenêtre de transformation
 
