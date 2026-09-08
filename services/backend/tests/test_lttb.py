@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 
+import pytest
 from app.core.contract import utc_iso
 from app.services.lttb import downsample_with_gaps
 
@@ -58,3 +60,37 @@ def test_mandatory_break_points_can_exceed_target_instead_of_being_dropped():
     assert [item["at"] for item in sampled if item["value"] is None] == [
         item["at"] for item in points if item["value"] is None
     ]
+
+
+@pytest.mark.parametrize("days", [1, 7, 30])
+def test_complete_dashboard_periods_are_reduced_to_display_target(days):
+    points = [point(minute, float(minute % 1440)) for minute in range(days * 1440)]
+
+    sampled = downsample_with_gaps(
+        points, time_key="at", value_key="value", threshold=600, cadence_seconds=60
+    )
+
+    assert len(sampled) == 600
+    assert sampled[0]["at"] == points[0]["at"]
+    assert sampled[-1]["at"] == points[-1]["at"]
+
+
+@pytest.mark.parametrize("fragmented", [False, True])
+def test_thirty_day_downsampling_performance_and_fragmentation(fragmented):
+    points = [
+        point(minute, None if fragmented and minute % 2 else float(minute % 1440))
+        for minute in range(30 * 1440)
+    ]
+
+    started_at = perf_counter()
+    sampled = downsample_with_gaps(
+        points, time_key="at", value_key="value", threshold=600, cadence_seconds=60
+    )
+    elapsed = perf_counter() - started_at
+
+    assert elapsed < 2
+    assert len(sampled) == (len(points) if fragmented else 600)
+    if fragmented:
+        assert [item["at"] for item in sampled if item["value"] is None] == [
+            item["at"] for item in points if item["value"] is None
+        ]

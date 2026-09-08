@@ -84,17 +84,33 @@ python -m ruff format --check .
 9. Changer rapidement de site/période pendant un chargement : une ancienne réponse
    ne doit pas remplacer la sélection courante. Vérifier aussi un écran étroit.
 
+## Validation du volume et des performances
+
+- Sur une série continue complète, vérifier que `downsampling.*.output_points` vaut
+  600 pour 24 heures, 7 jours et 30 jours, et que les premier et dernier points natifs
+  sont présents.
+- Sur une série contenant des valeurs nulles ou des intervalles absents, vérifier que
+  chaque null et les deux bords de chaque rupture restent présents. Le résultat peut
+  dépasser 600 points lorsque ces points obligatoires épuisent le budget.
+- Le test unitaire traite 43 200 points continus puis 43 200 points alternant valeur et
+  null. Sa limite de deux secondes protège contre une régression importante tout en
+  restant volontairement large pour les environnements CI.
+- La performance HTTP sur 30 jours doit être mesurée avec `TEST_DATABASE_URL` sur une
+  base PostgreSQL dédiée : le temps inclut alors les lectures SQL, les calculs complets,
+  LTTB et la sérialisation. Une exécution ignorée faute de base n'est pas une validation.
+
 ## Limites à conserver visibles
 
 - kWh est l'unité déclarée par la source. La durée physique d'intégration reste
   inconnue ; aucune conversion en kW ou normalisation par 60 n'a été faite.
 - Les comptes actifs ont accès à tous les sites selon la politique actuelle.
   Cette étape ne crée pas de gestion de droits par site.
-- Avant LTTB, la route peut renvoyer jusqu'à 43 201 mesures et 43 321 prédictions.
-  La réponse peut donc être volumineuse. Un délai SQL de 5 secondes par requête
-  et des plafonds fixes protègent la lecture ; aucune réduction silencieuse.
+- La route peut lire jusqu'à 43 201 mesures et 43 321 prédictions pour ses calculs
+  complets. L'affichage vise ensuite 600 points par série avec LTTB. Un délai SQL de
+  5 secondes et les plafonds fixes protègent la lecture ; aucune troncature silencieuse.
+  Une série très fragmentée peut dépasser la cible pour conserver tous ses points obligatoires.
 - L'historique de prévisions absent en base n'est pas reconstruit. Si la version
   de production n'a pas encore de prévisions, ses séries restent vides.
 - Les routes historiques d'agrégats et les autres pages restent inchangées.
 
-L'étape 2 (LTTB serveur) attend la validation de cette étape.
+LTTB est actif côté serveur sur les séries destinées à l'affichage uniquement.
