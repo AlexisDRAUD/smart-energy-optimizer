@@ -25,7 +25,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 TARGET_COLUMN = "target_kwh"
 NUMERIC_FEATURES = [
@@ -65,6 +65,8 @@ class Config:
     site_id: str | None = None
     estimator: str = "random_forest"
     job_run_id: str | None = None
+    # When true, only perform a check comparing sites in DB and registered models
+    check_models: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -106,6 +108,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--estimator", choices=["random_forest", "extra_trees"], default="random_forest"
     )
     parser.add_argument("--job-run-id")
+    parser.add_argument(
+        "--check-models",
+        action="store_true",
+        help="Vérifie les sites en base vs modèles enregistrés MLflow et affiche les manquants",
+    )
     args = parser.parse_args(argv)
     if args.holdout_minutes is not None and args.holdout_minutes <= 0:
         parser.error("--holdout-minutes must be positive")
@@ -137,6 +144,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         site_id=args.site_id,
         estimator=args.estimator,
         job_run_id=args.job_run_id,
+        check_models=args.check_models,
     )
 
 
@@ -404,6 +412,74 @@ def train_site(
         }
 
 
+def get_db_sites(database_url: str | None = None) -> list[str]:
+    """Récupère la liste distincte des identifiants de sites ayant des mesures."""
+    url = database_url or os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("DATABASE_URL is required to query sites")
+    engine = create_engine(url)
+    query = text(
+        "SELECT DISTINCT site_id FROM readings WHERE consumption_kwh IS NOT NULL ORDER BY site_id"
+    )
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query)
+            return [str(row[0]) for row in result]
+    finally:
+        engine.dispose()
+
+
+def get_registered_models(client: MlflowClient) -> list[str]:
+    """Récupère les noms des modèles enregistrés dans MLflow."""
+    try:
+        models = client.search_registered_models()
+        return [m.name for m in models]
+    except Exception:
+        try:
+            versions = client.search_model_versions(filter_string="")
+            names = set()
+            for v in versions:
+                name = getattr(v, "name", None)
+                if name is None and isinstance(v, dict):
+                    name = v.get("name")
+                if name:
+                    names.add(name)
+            return sorted(names)
+        except Exception:
+            return []
+
+
+def check_models_vs_sites(cfg: Config) -> list[str]:
+    """Vérifie le nombre de sites vs modèles enregistrés et renvoie les modèles manquants."""
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+
+    sites = get_db_sites()
+    registered = get_registered_models(client)
+    registered_set = set(registered)
+
+    expected = {f"{cfg.model_name_prefix}_{site}" for site in sites}
+    missing = sorted(list(expected - registered_set))
+
+    print("\n--- Vérification des sites et des modèles ---")
+    print(f"Nombre total de sites en base : {len(sites)}")
+    print(
+        f"Nombre de modèles MLflow correspondants : {len(registered_set & expected)}/{len(sites)}"
+    )
+
+    if missing:
+        print(f"⚠️  Il manque {len(missing)} modèle(s) :")
+        for model_name in missing:
+            site_id = model_name[len(cfg.model_name_prefix) + 1 :]
+            print(f" - Site: {site_id} -> modèle manquant : {model_name}")
+    else:
+        print("✅ Tous les sites ont un modèle enregistré.")
+
+    return missing
+
+
 def run_training(cfg: Config) -> int:
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     if tracking_uri:
@@ -453,11 +529,17 @@ def run_training(cfg: Config) -> int:
         raise ValueError("No model trained. Check source data volume and min-train-rows.")
 
     print(f"Training complete: trained={trained}, skipped={skipped}")
+    if cfg.use_db:
+        check_models_vs_sites(cfg)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     cfg = parse_args(argv)
+    if cfg.check_models:
+        check_models_vs_sites(cfg)
+        return 0
+
     inherited = os.getenv("ML_TRAIN_LOCK_FD")
     with (
         os.fdopen(int(inherited), "w")
