@@ -54,6 +54,9 @@ LOGGER = logging.getLogger(__name__)
 DELAI_ENTRE_LANCEMENTS = timedelta(hours=24)
 DELAI_DE_GRACE = timedelta(hours=24)
 AGE_MAXIMAL = timedelta(days=7)
+# Les verdicts qui lancent un entrainement. Les autres ("verrou", "grace",
+# "aucun") ne font que s ecrire dans le journal.
+RAISONS = frozenset({"filet", "derive"})
 
 
 @dataclass(frozen=True)
@@ -136,12 +139,22 @@ class Ordonnanceur:
                 version,
             )
             return None
-        raison = self._decider(rapport, seuil, maintenant)
-        if raison is None:
+        verdict = self._decider(rapport, seuil, maintenant)
+        dernier = self._derniers_lancements.get(site_id)
+        LOGGER.info(
+            "Site %s : MAE 7 j %s, MAE 24 h %s, seuil %s, verdict %s, dernier lancement %s",
+            site_id,
+            _nombre(rapport.mae_decision),
+            _nombre(rapport.mae_alerte),
+            _nombre(seuil),
+            verdict,
+            "jamais" if dernier is None else dernier.isoformat(),
+        )
+        if verdict not in RAISONS:
             return None
         demande = DemandeEntrainement(
             site_id=site_id,
-            raison=raison,
+            raison=verdict,
             demandee_at=maintenant,
             version_en_production=version,
             mae_decision=rapport.mae_decision,
@@ -149,20 +162,14 @@ class Ordonnanceur:
         )
         self.lanceur(site_id)
         self._derniers_lancements[site_id] = maintenant
-        LOGGER.info(
-            "Site %s : entrainement demande (%s), version %s, MAE %s, seuil %s",
-            site_id,
-            raison,
-            demande.version_en_production,
-            demande.mae_decision,
-            demande.seuil,
-        )
+        LOGGER.info("Site %s : entrainement demande (%s), version %s", site_id, verdict, version)
         return demande
 
-    def _decider(self, rapport: RapportSite, seuil: float, maintenant: datetime) -> str | None:
+    def _decider(self, rapport: RapportSite, seuil: float, maintenant: datetime) -> str:
+        """Le verdict du tour. Seuls "filet" et "derive" lancent quelque chose."""
         dernier = self._derniers_lancements.get(rapport.site_id)
         if dernier is not None and maintenant - dernier < self.delai_entre_lancements:
-            return None
+            return "verrou"
 
         notee_depuis = (
             None if rapport.premiere_notation is None else maintenant - rapport.premiere_notation
@@ -176,13 +183,14 @@ class Ordonnanceur:
 
         self._avertir(rapport, seuil)
         if notee_depuis is None or notee_depuis < self.delai_de_grace:
-            return None
+            return "grace"
         if rapport.mae_decision is not None and rapport.mae_decision > seuil:
             return "derive"
-        return None
+        return "aucun"
 
     @staticmethod
     def _avertir(rapport: RapportSite, seuil: float) -> None:
+        """La fenetre d alerte ne decide rien, elle previent."""
         if rapport.mae_alerte is not None and rapport.mae_alerte > seuil:
             LOGGER.warning(
                 "Site %s : MAE sur 24 h a %.3f, au-dessus du seuil %.3f (%d notees)",
@@ -191,3 +199,7 @@ class Ordonnanceur:
                 seuil,
                 rapport.notees_alerte,
             )
+
+
+def _nombre(valeur: float | None) -> str:
+    return "-" if valeur is None else f"{valeur:.3f}"

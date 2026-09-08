@@ -269,6 +269,60 @@ def test_apres_un_filet_une_derive_est_redemandee_des_la_fin_du_verrou(banc):
     assert [d.raison for d in banc.tour()] == ["derive"]
 
 
+# --- Journal ----------------------------------------------------------------
+
+
+def test_chaque_site_juge_laisse_une_ligne_info(banc, caplog):
+    """Une ligne par site et par tour : MAE 7 j, MAE 24 h, seuil, verdict, dernier lancement."""
+    banc.poser(
+        rapport(site_id="SAIN", mae_decision=5.0, mae_alerte=4.5),
+        rapport(site_id="DERIVE", mae_decision=12.0, mae_alerte=13.0),
+        rapport(site_id="FRAIS", mae_decision=50.0, premiere_notation=il_y_a(hours=2)),
+        rapport(site_id="VIDE", mae_decision=None, mae_alerte=None, premiere_notation=None),
+    )
+
+    with caplog.at_level("INFO", logger="app.supervisor.scheduler"):
+        banc.tour()
+
+    assert (
+        "Site SAIN : MAE 7 j 5.000, MAE 24 h 4.500, seuil 10.000, "
+        "verdict aucun, dernier lancement jamais"
+    ) in caplog.text
+    assert (
+        "Site DERIVE : MAE 7 j 12.000, MAE 24 h 13.000, seuil 10.000, "
+        "verdict derive, dernier lancement jamais"
+    ) in caplog.text
+    assert (
+        "Site FRAIS : MAE 7 j 50.000, MAE 24 h 5.000, seuil 10.000, verdict grace," in caplog.text
+    )
+    assert "Site VIDE : MAE 7 j -, MAE 24 h -, seuil 10.000, verdict grace," in caplog.text
+
+
+def test_la_ligne_info_montre_le_verrou_et_le_dernier_lancement(banc, caplog):
+    banc.poser(rapport(mae_decision=12.0))
+    banc.tour()
+    banc.horloge.avancer(hours=6)
+
+    with caplog.at_level("INFO", logger="app.supervisor.scheduler"):
+        banc.tour()
+
+    assert (
+        "Site SITE001 : MAE 7 j 12.000, MAE 24 h 5.000, seuil 10.000, "
+        "verdict verrou, dernier lancement 2026-09-08T12:00:00+00:00"
+    ) in caplog.text
+
+
+def test_un_site_sans_seuil_n_a_que_son_avertissement(caplog):
+    banc = Banc(seuil=None)
+    banc.poser(rapport())
+
+    with caplog.at_level("INFO", logger="app.supervisor.scheduler"):
+        banc.tour()
+
+    assert "supervision inactive" in caplog.text
+    assert "verdict" not in caplog.text
+
+
 # --- Robustesse et reglages -------------------------------------------------
 
 
