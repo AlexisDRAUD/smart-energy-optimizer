@@ -101,22 +101,33 @@ jobs du serveur d'entraînement sans réévaluer cet avis. Ne charger que des
 artefacts de confiance : cloudpickle peut exécuter du code à la désérialisation.
 
 Le runtime web exige `libuuid>=2.42.3-r1`, version corrigée pour les sept
-alertes HIGH du rapport Alpine. Le backend reste sur Debian/glibc
-`python:3.12-slim-trixie`, pour conserver les wheels scientifiques ARM64.
+alertes HIGH du premier rapport Alpine.
 
-Les trois alertes CRITICAL `perl-base` restent **non corrigées** dans cette
-distribution : [CVE-2026-13221](https://security-tracker.debian.org/tracker/CVE-2026-13221),
-[CVE-2026-42496](https://security-tracker.debian.org/tracker/CVE-2026-42496)
-et [CVE-2026-8376](https://security-tracker.debian.org/tracker/CVE-2026-8376).
-Au 8 septembre 2026, Debian stable propose toujours `5.40.1-6` ; les avis
-référencent des correctifs en testing/unstable, pas en trixie ni en bookworm.
-Un retour à bookworm ne les corrigerait donc pas. Le paquet essentiel n'est
-pas supprimé, aucune distribution instable n'est introduite et aucune
-exception Trivy n'est ajoutée : **la publication reste bloquée** tant que
-ces alertes persistent. Reconstruire avec `--pull` et rescanner dès qu'un
-correctif stable est disponible.
+Le backend utilise désormais **Ubuntu 24.04 LTS**, avec les mises à jour des
+dépôts officiels et Python 3.12 fourni par Ubuntu, dans un environnement
+virtuel. Cette base conserve glibc et les wheels scientifiques ARM64 sans
+introduire de paquets Debian testing/unstable.
 
-Validation locale ARM64 avec Trivy 0.74.0 : le backend reconstruit passe de
-11 à 3 CRITICAL et de 65 à 51 HIGH, tous les résultats restants étant des
-paquets OS ; le web passe de 7 HIGH à zéro HIGH/CRITICAL. Ces résultats ne
-remplacent pas le scan CI de l'architecture publiée.
+Contrairement à Debian trixie/bookworm, Ubuntu noble fournit les correctifs
+des trois alertes CRITICAL `perl-base` :
+
+| CVE | Version Ubuntu corrigée |
+| --- | --- |
+| [CVE-2026-13221](https://ubuntu.com/security/CVE-2026-13221) | `5.38.2-3.2ubuntu0.4` |
+| [CVE-2026-42496](https://ubuntu.com/security/CVE-2026-42496) | `5.38.2-3.2ubuntu0.3` |
+| [CVE-2026-8376](https://ubuntu.com/security/CVE-2026-8376) | `5.38.2-3.2ubuntu0.3` |
+
+Le build vérifie que `perl-base` est au moins en `5.38.2-3.2ubuntu0.4`.
+Le paquet essentiel et les métadonnées du gestionnaire de paquets restent
+présents : il s'agit de correctifs distribués par Ubuntu, pas d'une exclusion
+du scan. Aucune exception Trivy ni modification des seuils CI n'est appliquée.
+Reconstruire régulièrement avec `--pull` pour intégrer les mises à jour.
+
+Validation locale ARM64 du 8 septembre 2026 avec Trivy 0.74.0 (OS et
+bibliothèques, vulnérabilités sans correctif incluses) : les rapports fournis
+contenaient 3 CRITICAL et 51 HIGH côté backend, zéro côté web ; les deux
+images reconstruites ont **zéro HIGH et zéro CRITICAL**. `pip check`, les deux
+tests MLflow (chargement scikit-learn/pyfunc, artefacts HTTP et client S3) et
+43 tests unitaires backend passent ; huit tests PostgreSQL sont ignorés en
+l'absence de base de test dédiée. Ces résultats ne remplacent pas le scan CI
+de l'architecture publiée.
