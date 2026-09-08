@@ -10,12 +10,18 @@ class PostgresStorage:
             result = conn.execute(text("SELECT 1")).fetchone()
         return result == (1,)
 
-    def store_raw(self, source: str, payload: str) -> None:
+    def store_raw(self, source: str, payload: str) -> int:
+        """Insere une mesure brute. Retourne 1 si inseree, 0 si deja presente."""
         with self.engine.begin() as conn:
-            conn.execute(
-                text("INSERT INTO raw_readings (source, payload) VALUES (:source, :payload)"),
+            result = conn.execute(
+                text(
+                    "INSERT INTO raw_readings (source, payload) "
+                    "VALUES (:source, :payload) "
+                    "ON CONFLICT (site_id, measured_at) DO NOTHING"
+                ),
                 {"source": source, "payload": payload},
             )
+            return result.rowcount
 
     def close(self) -> None:
         self.engine.dispose()

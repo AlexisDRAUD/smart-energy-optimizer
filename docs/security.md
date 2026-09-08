@@ -40,6 +40,43 @@ une fois reste dans l'historique meme apres avoir été retire du fichier.
   token copié ailleurs reste valable jusqu'a son expiration. Il faudrait une table de
   sessions en base pour le couper vraiment.
 - Dépendances figées par version.
-- Analyse des images et des dépendances dans la chaine d'intégration, résultats traités et
-  non ignorés.
+- Analyse des images et des dépendances dans la chaine d'intégration avec Trivy ; les
+  vulnérabilités critiques bloquent leur publication.
 - Aucun identifiant durable stocké côté client au dela du jeton.
+
+## Scan des images avec Trivy
+
+La chaine construit et analyse les images backend et web sur chaque pull request
+vers `main` ou `dev`, puis de nouveau sur chaque push vers `dev`. Le scan couvre
+les vulnérabilités connues des paquets du système d'exploitation et des
+bibliothèques applicatives, pour les niveaux `HIGH` et `CRITICAL`.
+
+La politique est la suivante :
+
+- `HIGH` : visible dans les logs, le résumé du job et le rapport JSON, sans
+  bloquer la chaine ;
+- `CRITICAL` : échec du contrôle et aucune publication dans GHCR ;
+- vulnérabilité sans correctif : elle reste rapportée et applique la même
+  politique ;
+- aucune exception ou règle `.trivyignore` n'est appliquée par défaut.
+
+Les rapports `backend.json` et `web.json` sont conservés 30 jours dans
+l'artefact `trivy-image-reports-<sha>` du run GitHub Actions. Ils constituent la
+trace détaillée du contrôle. Le résumé du job fournit les nombres de
+vulnérabilités et les logs donnent notamment l'identifiant CVE, le paquet, les
+versions installée et corrigée, et la cible concernée.
+
+Le job exécuté sur les pull requests possède uniquement `contents: read`. Il ne
+référence aucun secret du dépôt, ne demande pas `packages: write` et utilise
+l'événement `pull_request`, qui ne transmet pas les secrets du dépôt aux forks.
+La connexion GHCR et `packages: write` sont isolés dans le job de publication,
+conditionné à un push vers `dev` après la réussite du scan.
+
+### Limites
+
+Trivy détecte ce qui est présent dans sa base de vulnérabilités au moment du
+run. Ce contrôle d'image ne remplace pas un test dynamique de l'API ou du site,
+une analyse des erreurs de logique métier, un test d'intrusion, ni la surveillance
+de l'environnement en exécution. Une nouvelle CVE publiée après le build ne sera
+visible qu'au prochain scan ; les images doivent donc être reconstruites et
+analysées régulièrement.

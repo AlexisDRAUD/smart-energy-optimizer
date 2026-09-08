@@ -130,8 +130,14 @@ class QualityResponse(ContractModel):
 
 
 class SensorPoint(ContractModel):
+    """Une observation reellement enregistree dans sensor_status.
+
+    Le Literal reprend la CheckConstraint de la table : il documente les
+    valeurs possibles, il ne sert pas a fabriquer des lignes.
+    """
+
     sensor: Literal["consumption", "electrical", "temperature", "humidity", "network"]
-    observed_at: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
+    observed_at: ISODateTime = Field(json_schema_extra={"format": "date-time"})
     status: Literal["ok", "failing"]
     failing_until: ISODateTime | None = Field(
         default=None, json_schema_extra={"format": "date-time"}
@@ -141,7 +147,9 @@ class SensorPoint(ContractModel):
 class SensorSiteResponse(ContractModel):
     site_id: str
     sensors: list[SensorPoint]
-    overall: Literal["ok", "failing"]
+    # null quand aucun capteur du site n a jamais rien remonte : l etat est
+    # inconnu, ce qui n est ni "ok" ni "failing".
+    overall: Literal["ok", "failing"] | None = None
 
 
 class SensorStatusResponse(ContractModel):
@@ -201,13 +209,21 @@ class PredictionsResponse(ContractModel):
 
 
 class ModelResponse(ContractModel):
-    model_name: str
-    model_version: str
-    trained_at: ISODateTime | None = Field(default=None, json_schema_extra={"format": "date-time"})
-    horizon_minutes: int
-    test_metrics: dict[str, float | None]
-    availability: Literal["local_fallback", "mlflow"]
-    mlflow_available: bool
+    """Ce que la table predictions dit du modele en service.
+
+    Tout vient des lignes reellement ecrites : aucun champ ne decrit un
+    entrainement ou un registre de modeles qui n existent pas dans ce depot.
+    Les champs sont nuls tant qu aucune prevision n a ete produite.
+    """
+
+    model_name: str | None = None
+    model_version: str | None = None
+    horizon_minutes: int | None = None
+    last_prediction_at: ISODateTime | None = Field(
+        default=None, json_schema_extra={"format": "date-time"}
+    )
+    predictions_total: int = Field(ge=0)
+    predictions_scored: int = Field(ge=0)
 
 
 class Metric(ContractModel):
@@ -221,19 +237,6 @@ class ModelPerformanceResponse(ContractModel):
     model: Metric
     persistence_baseline: Metric
     linear_baseline: Metric
-
-
-class Recommendation(ContractModel):
-    action: str
-    estimated_savings_kwh: float = Field(ge=0)
-
-
-class RecommendationsResponse(ContractModel):
-    site_id: str
-    recommendations: list[Recommendation]
-    total: int
-    limit: int
-    offset: int
 
 
 class SourceStatus(ContractModel):

@@ -1,42 +1,52 @@
-import type { ApiReading } from '../src/types/api'
-import { getReadingValue, formatEnergy, formatDateTime, formatQuality } from '../src/utils/formatters'
+import { formatDateTime, formatEnergy, formatNumber, formatPercent, formatPower, formatQuality, formatSeverity, severityDot } from '../src/utils/formatters'
+
+const singleSpaces = (value: string) => value.replace(/[\u00a0\u202f\s]+/g, ' ')
 
 describe('formatters', () => {
-  it('getReadingValue prefers raw if present', () => {
-    const reading = { consumption_kwh_raw: 12.345, consumption_kwh_imputed: 99.9 } as unknown as ApiReading
-    expect(getReadingValue(reading)).toBe(12.345)
-  })
-
-  it('getReadingValue falls back to imputed when raw absent', () => {
-    const reading = { consumption_kwh_raw: null, consumption_kwh_imputed: 42 } as unknown as ApiReading
-    expect(getReadingValue(reading)).toBe(42)
-  })
-
   it('formatEnergy returns placeholder for null/undefined', () => {
     expect(formatEnergy(null)).toBe('Donnée indisponible')
     expect(formatEnergy(undefined)).toBe('Donnée indisponible')
   })
 
   it('formatEnergy formats numeric values with one decimal French locale and kWh', () => {
-    const out = formatEnergy(1234.56)
-    const normalized = out.replace(/[\u00A0\u202F\s]+/g, ' ')
-    expect(normalized).toBe('1 234,6 kWh')
+    expect(singleSpaces(formatEnergy(1234.56))).toBe('1 234,6 kWh')
   })
 
-  it('formatDateTime returns a non-empty localized string including time', () => {
-    const iso = '2026-09-03T09:30:00.000Z'
-    const s = formatDateTime(iso)
-    expect(typeof s).toBe('string')
-    expect(s.length).toBeGreaterThan(0)
-    // should include a colon for the time portion
-    expect(s).toMatch(/:/)
+  it('formatPower uses kW', () => {
+    expect(singleSpaces(formatPower(1234.56))).toBe('1 234,6 kW')
+    expect(formatPower(null)).toBe('Donnée indisponible')
   })
 
-  it('formatQuality maps quality codes to French labels', () => {
+  it('formatPercent and formatNumber fall back to a dash', () => {
+    expect(singleSpaces(formatPercent(12.34))).toBe('12,3 %')
+    expect(formatPercent(null)).toBe('—')
+    expect(formatNumber(null)).toBe('—')
+    expect(formatNumber(2.5)).toBe('2,5')
+  })
+
+  it('formatDateTime returns a localized string with a time, and a dash for null', () => {
+    expect(formatDateTime('2026-09-03T09:30:00.000Z')).toMatch(/:/)
+    expect(formatDateTime(null)).toBe('—')
+  })
+
+  it('formatQuality maps the four values of the contract', () => {
     expect(formatQuality('good')).toBe('Bonne')
     expect(formatQuality('partial')).toBe('Partielle')
     expect(formatQuality('degraded')).toBe('Dégradée')
     expect(formatQuality('critical')).toBe('Critique')
-    expect(formatQuality('predicted')).toBe('Prédite')
+  })
+
+  it('formatSeverity maps the four severities of the contract', () => {
+    expect(formatSeverity('low')).toBe('Faible')
+    expect(formatSeverity('medium')).toBe('Moyenne')
+    expect(formatSeverity('high')).toBe('Haute')
+    expect(formatSeverity('critical')).toBe('Critique')
+  })
+
+  it('severityDot gives a colour to every severity', () => {
+    expect(severityDot('critical')).toBe('red')
+    expect(severityDot('high')).toBe('orange')
+    expect(severityDot('medium')).toBe('blue')
+    expect(severityDot('low')).toBe('blue')
   })
 })

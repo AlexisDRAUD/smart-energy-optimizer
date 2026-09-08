@@ -1,9 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
+from app.config import settings
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
 from app.db.session import SessionLocal
-from app.services.prediction_service import PREDICTION_HORIZON_MINUTES, refresh_stored_predictions
+from app.services.prediction_service import refresh_stored_predictions
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -21,7 +22,7 @@ def test_refresh_writes_one_idempotent_horizon_prediction_per_site(
     assert created == 0
     assert before == after
     assert prediction is not None
-    assert prediction.horizon_minutes == PREDICTION_HORIZON_MINUTES
+    assert prediction.horizon_minutes == settings.prediction_horizon_minutes
 
 
 def test_refresh_scores_prediction_when_its_actual_measurement_arrives(

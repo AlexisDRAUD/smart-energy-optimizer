@@ -2,7 +2,7 @@
 # une commande differente : migrate, api, collector, etl. Voir docker-compose.yml.
 #
 # Construite depuis la racine du depot, parce qu elle installe packages/features.
-FROM python:3.12-slim
+FROM python:3.12-alpine3.23
 
 WORKDIR /app
 

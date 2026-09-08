@@ -28,12 +28,8 @@ models/*.pkl
 models/*.joblib
 
 # Donnees locales
-data/
+/data/
 *.csv
-<<<<<<< HEAD
-*.db
-=======
->>>>>>> dev
 !docs/**/*.csv
 
 # Outils

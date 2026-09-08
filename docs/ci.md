@@ -5,10 +5,10 @@ Le fichier unique `.github/workflows/ci.yml` decrit toute la chaine. Il tourne s
 ailleurs : une branche de travail ne consomme des minutes qu'au moment de la
 demande de fusion.
 
-Deux versions d'outils sont figees en haut du fichier et valent pour tous les
-jobs : `PYTHON_VERSION` (3.12) et `NODE_VERSION` (20). Elles doivent suivre les
-images des `Dockerfile`, sinon la chaine valide un code qui ne tournera pas en
-production.
+Deux versions d'outils sont figees en haut du fichier pour les jobs de qualite :
+`PYTHON_VERSION` (3.12) et `NODE_VERSION` (24). Les images Docker gardent leurs
+propres versions de base dans chaque `Dockerfile` et sont validees separement par
+Trivy.
 
 ## Les jobs
 
@@ -18,6 +18,8 @@ production.
 | `backend-test` | `backend-lint` | `pytest` avec couverture, contre un vrai PostgreSQL | `services/backend` |
 | `web-lint` | rien | `npm run lint` (eslint) puis `npm run typecheck` (`tsc --noEmit`) | `services/web` |
 | `web-test` | `web-lint` | `npm run typecheck:test` puis Jest avec couverture | `services/web` |
+| `docker-security` | `backend-test`, `web-test` | construit et scanne les images backend et web avec Trivy | runner Docker |
+| `docker-publish` | `docker-security` | publie dans GHCR les images deja scannees, uniquement sur un push vers `dev` | GHCR |
 
 Les deux domaines avancent en parallele. A l'interieur d'un domaine, les tests
 attendent le lint : inutile de reserver un PostgreSQL ou de reinstaller les
@@ -25,8 +27,32 @@ dependances npm pour un code que le linter refuse deja.
 
 ```
 backend-lint ──> backend-test
+                            ├──> docker-security ──> docker-publish (`dev` seulement)
 web-lint     ──> web-test
 ```
+
+## Images Docker et Trivy
+
+`docker-security` s'execute pour les pull requests vers `main` ou `dev`, ainsi
+que pour les push vers `dev`. Il construit localement les images backend et web,
+puis Trivy analyse leurs paquets systeme et leurs bibliotheques. Le job ne recoit
+que la permission `contents: read` et ne se connecte a aucun registre.
+
+Le scan est limite aux severites `HIGH` et `CRITICAL`. Les deux niveaux sont
+affiches dans les logs et dans le resume du job. La presence d'une vulnerabilite
+`HIGH` est informative ; une ou plusieurs vulnerabilites `CRITICAL` font echouer
+le job. Les vulnerabilites sans correctif disponible restent prises en compte.
+
+Sur un push vers `dev`, les images qui ont passe ce controle sont exportees dans
+un artefact intermediaire conserve un jour. `docker-publish` recharge exactement
+ces images, obtient seul la permission `packages: write`, se connecte a GHCR,
+puis publie les tags immuable `<sha>` et mutable `dev`. Une image refusee par la
+politique Trivy ne peut donc pas etre publiee.
+
+L'action Trivy est figee par son empreinte de commit, avec le commentaire de
+version `v0.36.0`. Aucun resultat SARIF n'est envoye a GitHub Code Scanning : le
+pipeline ne depend ainsi ni de la permission `security-events: write`, ni de
+l'activation de cette fonctionnalite sur le depot.
 
 ## backend-test et la base
 
@@ -60,9 +86,14 @@ ne pas heriter du babel qu'utilise Vite au build. Voir les commentaires de
 |---|---|---|
 | `backend-coverage` | `services/backend/coverage.xml` (Cobertura) | `backend-test` |
 | `web-coverage` | `services/web/coverage/lcov.info` | `web-test` |
+| `trivy-image-reports-<sha>` | rapports JSON `backend.json` et `web.json`, conserves 30 jours | `docker-security` |
+| `scanned-docker-images-<sha>` | images validees a transmettre au job de publication, conservees 1 jour | `docker-security` sur `dev` |
 
 Ils sont joints au run, pas commites. On les recupere depuis la page du run pour
-la soutenance ou pour un outil de couverture.
+la soutenance ou pour un outil de couverture. Pour consulter un rapport Trivy,
+ouvrir le run GitHub Actions, descendre jusqu'a la section **Artifacts**, puis
+telecharger `trivy-image-reports-<sha>`. Le resume `Trivy image scan` donne les
+comptages sans telechargement.
 
 ## Cache
 
@@ -84,6 +115,15 @@ cd services/web
 npm ci
 npm run lint && npm run typecheck && npm run typecheck:test
 npm run test:coverage
+
+# images et rapports Trivy (Docker, Trivy et jq requis)
+cd ../..
+docker build -f services/backend/Dockerfile -t seo-backend:local .
+docker build -t seo-web:local services/web
+trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
+  --format json --output backend.json seo-backend:local
+trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
+  --format json --output web.json seo-web:local
 ```
 
 Le pre-commit (`ruff`, fins de fichier, cle privee, marqueurs de conflit) couvre
