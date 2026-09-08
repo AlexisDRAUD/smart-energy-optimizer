@@ -4,6 +4,7 @@ import { getOverview } from '../api/dashboard'
 import { getConsumptionChart } from '../api/consumptionChart'
 import { getLatestReading } from '../api/sites'
 import { ConsumptionChart } from '../components/charts/ConsumptionChart'
+import { DataDetails } from '../components/charts/DataDetails'
 import { DataTable, type Column } from '../components/common/DataTable'
 import { MetricCard } from '../components/common/MetricCard'
 import { PageFeedback } from '../components/common/PageFeedback'
@@ -128,28 +129,26 @@ export function DashboardPage() {
                             <div className="card-heading">
                                 <div>
                                     <h2>Consommation réelle et prédite</h2>
-                                    <p>Points natifs sélectionnés pour {selectedSite.site_name} · H+2 · {data.chart.model_name} · version {data.chart.model_version}</p>
+                                    <p>{selectedSite.site_name}</p>
                                 </div>
                                 <div className="legend">
                                     <span><i className="solid-line" /> Réel</span>
                                     <span><i className="dashed-line" /> Prédiction H+2</span>
                                 </div>
                             </div>
-                            <p>Du {formatDateTime(data.chart.start)} au {formatDateTime(data.chart.end)} · heures locales</p>
                             <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
-                            <p>Couverture réelle exploitable : {formatPercent(data.chart.reading_coverage.percent)} · {data.chart.reading_coverage.received_minutes}/{data.chart.reading_coverage.expected_minutes} minutes reçues · {data.chart.reading_coverage.missing_minutes} absentes · {data.chart.reading_coverage.null_minutes} nulles.</p>
-                            <p>{data.chart.reading_coverage.first_at ? `Relevés disponibles du ${formatDateTime(data.chart.reading_coverage.first_at)} au ${formatDateTime(data.chart.reading_coverage.last_at)}.` : 'Aucun relevé disponible.'}</p>
-                            <p>Couverture des prédictions historiques : {formatPercent(data.chart.prediction_coverage.percent)} · {data.chart.prediction_coverage.received_minutes}/{data.chart.prediction_coverage.expected_minutes} minutes.</p>
-                            <p>Affichage LTTB : {data.chart.downsampling.readings.output_points}/{data.chart.downsampling.readings.input_points} points réels · {data.chart.downsampling.historical_predictions.output_points}/{data.chart.downsampling.historical_predictions.input_points} prédictions. Couverture et écart calculés sur les séries complètes.</p>
-                            <p>kWh déclarés par la source, sans conversion. Cadence attendue : une minute ; durée physique couverte par une valeur à confirmer avec le contrat Data.</p>
+                            <div className="data-quality-summary" aria-label="Qualité des données réelles">
+                                <span><small>Couverture exploitable</small><strong>{formatPercent(data.chart.reading_coverage.percent)}</strong></span>
+                                <span><small>Valeurs nulles</small><strong>{data.chart.reading_coverage.null_minutes.toLocaleString('fr-FR')}</strong></span>
+                                <span><small>Minutes absentes</small><strong>{data.chart.reading_coverage.missing_minutes.toLocaleString('fr-FR')}</strong></span>
+                            </div>
+                            <DataDetails chart={data.chart} />
                         </article>
 
                         <div className="right-column">
                             <article className="side-card">
                                 <h2>Prévisions futures H+2</h2>
-                                <p>Du {formatDateTime(data.chart.end)} au {formatDateTime(data.chart.future_end)} · version {data.chart.model_version}</p>
                                 <ConsumptionChart points={[]} predictions={data.chart.future_predictions} start={data.chart.end} end={data.chart.future_end} cadenceSeconds={data.chart.cadence_seconds} label="Prévisions futures H+2" />
-                                <p>{data.chart.future_coverage.received_minutes}/{data.chart.future_coverage.expected_minutes} minutes avec prévision disponible. Les absences restent visibles.</p>
                             </article>
                             <article className="side-card">
                                 <h2>Alertes récentes</h2>
