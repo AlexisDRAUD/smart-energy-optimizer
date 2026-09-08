@@ -13,10 +13,8 @@
 # SQL n est joue par l image PostgreSQL au premier demarrage.
 
 x-backend: &backend
-  build:
-    context: .
-    dockerfile: services/backend/Dockerfile
   image: smart-energy-optimizer-backend:local
+  pull_policy: never
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
@@ -45,6 +43,11 @@ services:
   # Les autres conteneurs attendent qu il se termine sans erreur.
   migrate:
     <<: *backend
+    # Un seul build pour l image partagee par migrate, api, collector et etl.
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    pull_policy: build
     command: ["./scripts/prepare-database.sh"]
     environment:
       <<: *backend-env

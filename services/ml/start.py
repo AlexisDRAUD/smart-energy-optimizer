@@ -50,9 +50,9 @@ def main() -> int:
                 "--default-artifact-root",
                 "mlflow-artifacts:/",
                 "--host",
-                "127.0.0.1",
+                "0.0.0.0",  # noqa: S104
                 "--port",
-                "5000",  # noqa: S104
+                "5000",
             ],
             start_new_session=True,
         )
