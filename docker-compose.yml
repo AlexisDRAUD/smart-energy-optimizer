@@ -132,6 +132,17 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Worker de prevision : rejoue le modele a intervalle regulier (60 s par defaut)
+  # et ecrit une prevision a horizon 120 minutes par site. Meme image que l API,
+  # commande differente. La cadence vient de sa boucle interne (decision 26).
+  model:
+    <<: *backend
+    command: ["python", "-m", "model.predict"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   mlflow:
     build:
       context: .
