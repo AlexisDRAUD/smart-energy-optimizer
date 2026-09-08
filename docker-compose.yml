@@ -25,6 +25,7 @@ x-backend: &backend
   # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
   # signale.
   environment: &backend-env
+    DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
     SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}
