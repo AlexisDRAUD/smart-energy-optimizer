@@ -135,7 +135,8 @@ jobs:
 
     if: >-
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/dev')
+      (github.event_name == 'push'
+        && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'))
 
     permissions:
       contents: read
@@ -154,6 +155,11 @@ jobs:
           file: services/backend/Dockerfile
           load: true
           tags: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          # Le tag mobile ne dit pas quel commit tourne, ce label si :
+          # docker inspect rend la revision exacte de l image en service.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Build web image
         uses: docker/build-push-action@v6
@@ -161,6 +167,11 @@ jobs:
           context: ./services/web
           load: true
           tags: ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          # Le tag mobile ne dit pas quel commit tourne, ce label si :
+          # docker inspect rend la revision exacte de l image en service.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Build mlflow image
         uses: docker/build-push-action@v6
@@ -169,6 +180,11 @@ jobs:
           file: services/ml/Dockerfile
           load: true
           tags: ${{ env.ML_IMAGE }}:${{ github.sha }}
+          # Le tag mobile ne dit pas quel commit tourne, ce label si :
+          # docker inspect rend la revision exacte de l image en service.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Prepare Trivy reports directory
         run: mkdir -p trivy-reports
@@ -335,26 +351,34 @@ jobs:
 
           echo "Security policy passed: no CRITICAL vulnerability found."
 
+      # Deux tags par image : le SHA, immuable, pour figer et revenir en
+      # arriere, et le nom de la branche, mobile, pour le deploiement courant.
       - name: Export scanned images for publication
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        if: >-
+          github.event_name == 'push'
+          && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+        env:
+          MOBILE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p docker-images
 
-          docker tag "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:dev"
-          docker tag "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:dev"
-          docker tag "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:dev"
+          docker tag "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:${MOBILE_TAG}"
+          docker tag "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:${MOBILE_TAG}"
+          docker tag "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:${MOBILE_TAG}"
 
-          docker save "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:dev" \
+          docker save "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:${MOBILE_TAG}" \
             | gzip -1 > docker-images/backend.tar.gz
-          docker save "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:dev" \
+          docker save "${WEB_IMAGE}:${GITHUB_SHA}" "${WEB_IMAGE}:${MOBILE_TAG}" \
             | gzip -1 > docker-images/web.tar.gz
-          docker save "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:dev" \
+          docker save "${ML_IMAGE}:${GITHUB_SHA}" "${ML_IMAGE}:${MOBILE_TAG}" \
             | gzip -1 > docker-images/ml.tar.gz
 
       - name: Upload scanned images for publication
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        if: >-
+          github.event_name == 'push'
+          && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         uses: actions/upload-artifact@v6
         with:
           name: scanned-docker-images-${{ github.sha }}
@@ -368,7 +392,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker-security
 
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    if: >-
+      github.event_name == 'push'
+      && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
 
     permissions:
       packages: write
@@ -396,19 +422,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push backend image
+        env:
+          MOBILE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           docker push "${BACKEND_IMAGE}:${GITHUB_SHA}"
-          docker push "${BACKEND_IMAGE}:dev"
+          docker push "${BACKEND_IMAGE}:${MOBILE_TAG}"
 
       - name: Push web image
+        env:
+          MOBILE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           docker push "${WEB_IMAGE}:${GITHUB_SHA}"
-          docker push "${WEB_IMAGE}:dev"
+          docker push "${WEB_IMAGE}:${MOBILE_TAG}"
 
       - name: Push mlflow image
+        env:
+          MOBILE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           docker push "${ML_IMAGE}:${GITHUB_SHA}"
-          docker push "${ML_IMAGE}:dev"
+          docker push "${ML_IMAGE}:${MOBILE_TAG}"
