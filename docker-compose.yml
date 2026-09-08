@@ -26,6 +26,8 @@ x-backend: &backend
   # signale.
   environment: &backend-env
     DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
+    DOPPLER_PROJECT: ${DOPPLER_PROJECT:-eadl_2025_niort_g1}
+    DOPPLER_CONFIG: ${DOPPLER_CONFIG:-dev}
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
     SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}

@@ -25,6 +25,10 @@ if [ -z "${DOPPLER_TOKEN:-}" ]; then
   fi
 fi
 
-echo "Starting docker compose with Doppler..."
+# Default project/config used for doppler run if not provided in env
+DOPPLER_PROJECT=${DOPPLER_PROJECT:-eadl_2025_niort_g1}
+DOPPLER_CONFIG=${DOPPLER_CONFIG:-dev}
+
+echo "Starting docker compose with Doppler (project=$DOPPLER_PROJECT, config=$DOPPLER_CONFIG)..."
 # Use doppler to inject env vars into docker compose
-exec doppler run -- docker compose up --build
+exec doppler run -p "$DOPPLER_PROJECT" -c "$DOPPLER_CONFIG" -- docker compose up --build
