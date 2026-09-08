@@ -463,19 +463,23 @@ def check_models_vs_sites(cfg: Config) -> list[str]:
     expected = {f"{cfg.model_name_prefix}_{site}" for site in sites}
     missing = sorted(list(expected - registered_set))
 
-    print("\n--- Vérification des sites et des modèles ---")
-    print(f"Nombre total de sites en base : {len(sites)}")
+    print("\n==================================================", flush=True)
+    print("📊 Bilan : Sites vs Modèles MLflow", flush=True)
+    print("==================================================", flush=True)
+    print(f"Nombre total de sites en base : {len(sites)}", flush=True)
     print(
-        f"Nombre de modèles MLflow correspondants : {len(registered_set & expected)}/{len(sites)}"
+        f"Modèles enregistrés : {len(registered_set & expected)}/{len(sites)}",
+        flush=True,
     )
 
     if missing:
-        print(f"⚠️  Il manque {len(missing)} modèle(s) :")
+        print(f"\n⚠️  {len(missing)} modèle(s) manquant(s) :", flush=True)
         for model_name in missing:
             site_id = model_name[len(cfg.model_name_prefix) + 1 :]
-            print(f" - Site: {site_id} -> modèle manquant : {model_name}")
+            print(f"  ❌ Site {site_id} -> Manquant : {model_name}", flush=True)
     else:
-        print("✅ Tous les sites ont un modèle enregistré.")
+        print("\n✅ Tous les sites possèdent un modèle MLflow enregistré.", flush=True)
+    print("==================================================\n", flush=True)
 
     return missing
 
@@ -508,27 +512,50 @@ def run_training(cfg: Config) -> int:
         )
     client = MlflowClient()
 
+    site_groups = list(supervised.groupby("site_id", sort=True))
+    total_sites = len(site_groups)
+
+    print("\n==================================================", flush=True)
+    print(f"📋 Liste des modèles prévus à l'entraînement ({total_sites} sites) :", flush=True)
+    for idx, (s_id, frame) in enumerate(site_groups, 1):
+        print(
+            f"  [{idx}/{total_sites}] Site {s_id} -> Modèle : {cfg.model_name_prefix}_{s_id} "
+            f"({len(frame)} observations)",
+            flush=True,
+        )
+    print("==================================================\n", flush=True)
+
     trained = 0
     skipped = 0
-    for site_id, site_frame in supervised.groupby("site_id", sort=True):
+    for idx, (site_id, site_frame) in enumerate(site_groups, 1):
+        model_name = f"{cfg.model_name_prefix}_{site_id}"
+        print(
+            f"⏳ [{idx}/{total_sites}] Entraînement en cours : Site {site_id} ({model_name})...",
+            flush=True,
+        )
         result = train_site(cfg, client, site_id, site_frame)
         if result is None:
             skipped += 1
-            print(f"Skipped site {site_id}: insufficient train rows")
+            print(
+                f"⚠️  [{idx}/{total_sites}] Site {site_id} ignoré : "
+                f"données d'entraînement insuffisantes (< {cfg.min_train_rows} lignes)",
+                flush=True,
+            )
             continue
         trained += 1
         print(
-            f"Trained site {site_id}: "
+            f"✅ [{idx}/{total_sites}] Site {site_id} terminé : "
             f"rmse={result['metrics']['rmse']:.3f}, "
             f"mae={result['metrics']['mae']:.3f}, "
-            f"model={result['registered_model_name']}, "
-            f"alias_version={result['alias_version']}"
+            f"modèle={result['registered_model_name']}, "
+            f"version={result['alias_version']}",
+            flush=True,
         )
 
     if trained == 0:
         raise ValueError("No model trained. Check source data volume and min-train-rows.")
 
-    print(f"Training complete: trained={trained}, skipped={skipped}")
+    print(f"\n🎉 Entraînement terminé : {trained} entraînés, {skipped} ignorés.", flush=True)
     if cfg.use_db:
         check_models_vs_sites(cfg)
     return 0
