@@ -132,9 +132,12 @@ revenir sur la décision.
 ## Provoquer une dérive pour la démo
 
 Les données de la source sont stationnaires par construction : la dérive n'arrivera jamais
-seule. Elle se provoque (`POST /simulate/spike` sur un site, ou décalage injecté) avec les
-fenêtres et délais raccourcis par variables d'environnement, et cela se dit explicitement au
-jury.
+seule. Elle se provoque, avec les fenêtres et délais raccourcis par variables d'environnement,
+et cela se dit explicitement au jury. La source expose pour cela
+`POST /api/v1/simulate/spike/{site_id}?duration_minutes=N` (N de 1 à 240) : le site part en pic
+de consommation pendant N minutes, les prédictions émises avant le pic se notent avec une erreur
+forte. À défaut, un décalage injecté directement dans `predictions` fait le même travail
+(levier 3 ci-dessous).
 
 Préalable : un site dont les prédictions portent une `model_version` **présente dans le
 registre MLflow**. Tant que l'API écrit `local-1` (règle simple), le superviseur journalise

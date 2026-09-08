@@ -23,8 +23,8 @@ Le schéma d'ensemble est dans `architecture.mmd`, à coller sur https://mermaid
 
 ## Composants
 
-Trois images, six conteneurs dans le compose. L'image `backend` est lancée quatre fois avec
-des commandes différentes.
+Trois images dans le compose. L'image `backend` est lancée cinq fois avec des commandes
+différentes.
 
 | Conteneur | Image | Rôle | Régime |
 |---|---|---|---|
@@ -33,15 +33,17 @@ des commandes différentes.
 | `collector` | backend | interroge la source, écrit le brut | permanent, 1 min |
 | `etl` | backend | contrôle, répare, écrit le transformé | permanent, 1 min |
 | `api` | backend | expose les données, prédit, alerte | permanent, boucle de prédiction 1 min |
+| `supervisor` | backend | mesure l'erreur du modèle en production, décide des réentraînements | permanent, 5 min |
 | `web` | web | dashboard nginx | permanent |
+| `mlflow`, `minio`, `minio_setup` | ml, minio | registre des modèles et son stockage d'artefacts | voir `ml.md` |
 
-L'image `ml` existe dans `services/ml/` mais **n'est pas dans le compose** : elle n'est pas
-terminée et ne fait pas partie de ce lot.
+Le superviseur ne lit que `predictions` et `sites`, n'écrit rien, et ne promeut jamais un
+modèle. Ses règles et leurs raisons sont dans `ml-supervision.md`.
 
-**Pourquoi une seule image pour le collecteur, l'ETL et l'API.** Ils partagent la même base,
-les mêmes modèles et la même cadence de livraison. Ce sont trois morceaux d'un même programme,
-pas trois services indépendants : trois images auraient produit trois jeux de dépendances à
-maintenir sans rien apporter, puisqu'ils se déploient ensemble de toute façon.
+**Pourquoi une seule image pour le collecteur, l'ETL, l'API et le superviseur.** Ils partagent
+la même base, les mêmes modèles et la même cadence de livraison. Ce sont quatre morceaux d'un
+même programme, pas quatre services indépendants : quatre images auraient produit quatre jeux
+de dépendances à maintenir sans rien apporter, puisqu'ils se déploient ensemble de toute façon.
 
 Ils restent dans des conteneurs séparés, et c'est ce qui compte à l'exécution : le collecteur
 qui plante ne doit pas emporter le dashboard, et chacun redémarre seul.
@@ -172,12 +174,14 @@ C'est sa seule raison d'être, et c'est le seul paquet partagé du dépôt.
 
 ### `services/backend/`
 
-Le collecteur, l'ETL et l'API. Seul composant qui touche à la base, et il en porte le schéma.
+Le collecteur, l'ETL, l'API et le superviseur. Seul composant qui touche à la base, et il en
+porte le schéma.
 
 | Dossier | Rôle | N'y va pas |
 |---|---|---|
 | `app/collector/` | interroge la source, écrit la réponse **telle quelle**. Contient la reprise d'historique | la moindre transformation : ce qui est jeté ici est perdu définitivement |
 | `app/etl/` | lit le brut, contrôle, répare, écrit le transformé | le calcul des variables du modèle, il est dans `packages/features` |
+| `app/supervisor/` | mesure l'erreur du modèle en production, décide et demande les réentraînements (`ml-supervision.md`) | la promotion d'un modèle : c'est le script d'entraînement qui compare et promeut |
 | `app/api/`, `app/crud/`, `app/schemas/`, `app/services/` | le backend HTTP | l'accès direct à la base depuis l'extérieur |
 | `app/analysis/` | analyses hors ligne, comme le backtest d'imputation | tout ce qui écrit en base |
 | `app/db/` | modèles SQLAlchemy, session, comptes de démonstration | |

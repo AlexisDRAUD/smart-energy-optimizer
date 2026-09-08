@@ -26,11 +26,13 @@ Les services demarrent dans cet ordre :
 1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
 2. `migrate`, qui applique les migrations Alembic, cree les comptes, reprend l'historique de
    la source, puis s'arrete.
-3. `api`, `collector` et `etl`, qui attendent que `migrate` se termine sans erreur.
+3. `api`, `collector`, `etl` et `supervisor`, qui attendent que `migrate` se termine sans
+   erreur.
 4. `web`, le dashboard, qui attend que l'API soit saine.
 
-`migrate`, `api`, `collector` et `etl` utilisent la meme image backend avec des commandes
-differentes.
+`migrate`, `api`, `collector`, `etl` et `supervisor` utilisent la meme image backend avec des
+commandes differentes. `supervisor` surveille l'erreur du modele en production et decide des
+reentrainements, voir `docs/ml-supervision.md`.
 
 Comptez une dizaine de secondes pour la reprise d'historique, puis une trentaine pour la
 premiere transformation, avant que le dashboard affiche quelque chose. Le dashboard repond sur
@@ -81,6 +83,7 @@ Tout est dans `docs/`.
 
 - `deploiement.md` : la VM de l'ecole. Prevu, pas encore fait.
 - `ml.md` : le modele. Hors de ce lot.
+- `ml-supervision.md` : le superviseur du modele, ses regles et ses decisions.
 - `adr/` : les decisions structurantes et leurs consequences.
 
 Les regles de contribution sont dans `CONTRIBUTING.md`.
