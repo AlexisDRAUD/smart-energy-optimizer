@@ -1,20 +1,26 @@
 """Le seuil d un modele, lu dans le registre MLflow.
 
-L entrainement (services/ml/main.py) logge la MAE holdout de chaque modele
-dans le run qui enregistre sa version. Le seuil d un site est cette MAE
-multipliee par une tolerance : en production, le modele a le droit de se
-tromper un peu plus qu a l entrainement, pas beaucoup plus. Un seuil fixe en
-kWh ne convient pas, les sites n ont pas la meme echelle de consommation.
+L entrainement (services/ml/main.py) logge les metriques de chaque modele dans
+le run qui enregistre sa version. Le seuil d un site vient de ce run, dans cet
+ordre :
+
+1. `drift_threshold_mae`, si l entrainement l a posee : c est le seuil choisi
+   pour ce modele, on le prend tel quel.
+2. A defaut, `mae` (la MAE holdout) multipliee par une tolerance, 1,5 par
+   defaut : en production, le modele a le droit de se tromper un peu plus qu a
+   l entrainement, pas beaucoup plus. Un seuil fixe en kWh ne convient pas, les
+   sites n ont pas la meme echelle de consommation.
 
 On passe par l API REST de MLflow avec httpx plutot que par le client mlflow :
 le backend n embarque pas ce paquet et n a pas a le faire pour lire deux
 champs. Deux appels : la version du modele donne son run, le run donne ses
 metriques.
 
-Tout echec rend None : MLflow injoignable, modele ou version inconnus,
-metrique absente. L ordonnanceur ne juge alors pas la derive et seul le filet
-s applique. L echec est journalise, pas propage : un MLflow en panne ne doit
-pas arreter le superviseur.
+Tout echec rend None : MLflow injoignable, modele ou version inconnus (la
+regle simple de l API n est pas dans le registre), aucune des deux metriques.
+L ordonnanceur declare alors le site sans supervision et passe au suivant.
+L echec est journalise, pas propage : un MLflow en panne ne doit pas arreter
+le superviseur.
 """
 
 from __future__ import annotations
@@ -27,16 +33,18 @@ from app.supervisor.scheduler import SourceDeSeuil
 
 LOGGER = logging.getLogger(__name__)
 
-METRIQUE = "mae"
+METRIQUE_SEUIL = "drift_threshold_mae"
+METRIQUE_MAE = "mae"
+TOLERANCE = 1.5
 
 
 def seuil_mlflow(
     tracking_uri: str,
     prefixe_modele: str,
-    tolerance: float,
+    tolerance: float = TOLERANCE,
     client: httpx.Client | None = None,
 ) -> SourceDeSeuil:
-    """Seuil = MAE holdout de la version en production x tolerance."""
+    """Seuil = drift_threshold_mae du run, a defaut MAE holdout x tolerance."""
     if tolerance <= 0:
         raise ValueError("La tolerance doit etre strictement positive")
     base = tracking_uri.rstrip("/")
@@ -46,16 +54,22 @@ def seuil_mlflow(
         nom = f"{prefixe_modele}_{site_id}"
         try:
             run_id = _run_de_la_version(http, base, nom, version)
-            mae = _metrique(http, base, run_id, METRIQUE)
+            metriques = _metriques(http, base, run_id)
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as erreur:
             LOGGER.warning("Seuil indisponible pour %s version %s : %s", nom, version, erreur)
             return None
-        if mae is None:
-            LOGGER.warning(
-                "Seuil indisponible pour %s version %s : pas de %s", nom, version, METRIQUE
-            )
-            return None
-        return mae * tolerance
+        if METRIQUE_SEUIL in metriques:
+            return metriques[METRIQUE_SEUIL]
+        if METRIQUE_MAE in metriques:
+            return metriques[METRIQUE_MAE] * tolerance
+        LOGGER.warning(
+            "Seuil indisponible pour %s version %s : ni %s ni %s dans le run",
+            nom,
+            version,
+            METRIQUE_SEUIL,
+            METRIQUE_MAE,
+        )
+        return None
 
     return source
 
@@ -69,11 +83,8 @@ def _run_de_la_version(http: httpx.Client, base: str, nom: str, version: str) ->
     return str(reponse.json()["model_version"]["run_id"])
 
 
-def _metrique(http: httpx.Client, base: str, run_id: str, cle: str) -> float | None:
+def _metriques(http: httpx.Client, base: str, run_id: str) -> dict[str, float]:
     reponse = http.get(f"{base}/api/2.0/mlflow/runs/get", params={"run_id": run_id})
     reponse.raise_for_status()
     metriques = reponse.json()["run"]["data"].get("metrics", [])
-    for metrique in metriques:
-        if metrique["key"] == cle:
-            return float(metrique["value"])
-    return None
+    return {m["key"]: float(m["value"]) for m in metriques}

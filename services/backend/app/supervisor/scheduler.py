@@ -1,27 +1,35 @@
 """Decider et lancer, sans rien mesurer ni promouvoir.
 
-L ordonnanceur passe chaque site au moniteur puis applique quatre regles, dans
+L ordonnanceur passe chaque site au moniteur puis applique cinq regles, dans
 cet ordre. La premiere qui conclut l emporte.
 
 1. Pas de version en production : rien a surveiller. L entrainement initial
    est du ressort du service ML, pas du superviseur.
-2. Verrou : un entrainement a ete demande pour ce site il y a moins de
+2. Pas de seuil : la version en production n a pas de modele dans le registre
+   MLflow (regle simple de l API, ou registre injoignable). Le site n est pas
+   supervise du tout, ni derive ni filet : le premier entrainement d un site
+   est une decision manuelle. Un avertissement est journalise, on passe au
+   suivant.
+3. Verrou : un entrainement a ete demande pour ce site il y a moins de
    `delai_entre_lancements`. On ne redemande pas, que l entrainement soit
    encore en cours ou qu il ait produit un modele juge moins bon et non promu.
    Sans ce verrou, une derive persistante relancerait l entrainement a chaque
    tour.
-3. Filet : la version en production est notee depuis plus de `age_maximal` et
+4. Filet : la version en production est notee depuis plus de `age_maximal` et
    rien n a ete demande depuis aussi longtemps. On reentraine meme sans derive,
    au cas ou le signal d erreur ne remonterait plus rien.
-4. Derive : la MAE de decision depasse le seuil du modele. Trois gardes avant
-   de conclure : un seuil connu, au moins `minimum_notees` predictions notees
-   (deux points malchanceux ne font pas une derive), et un modele note depuis
-   plus de `delai_de_grace`. Un modele frais a droit a une journee de donnees
-   avant d etre juge.
+5. Derive : la MAE de decision depasse le seuil du modele, et le modele est
+   note depuis au moins `delai_de_grace`. L unite est le temps, pas un nombre
+   de points : un modele frais a droit a une journee de donnees avant d etre
+   juge.
 
 La fenetre d alerte ne decide rien : quand elle depasse le seuil, un
 avertissement est journalise, pour voir venir une derive avant que la fenetre
 de decision ne la confirme.
+
+Le lanceur ne recoit que le site_id : c est tout ce qu un entrainement a
+besoin de savoir. La raison, la MAE et le seuil restent dans la
+DemandeEntrainement rendue par `tour()`, pour le journal.
 
 Tout ce qui touche le monde exterieur est injecte : la liste des sites, la
 mesure, la source du seuil, le lanceur et l horloge. Le journal des lancements
@@ -46,13 +54,11 @@ LOGGER = logging.getLogger(__name__)
 DELAI_ENTRE_LANCEMENTS = timedelta(hours=24)
 DELAI_DE_GRACE = timedelta(hours=24)
 AGE_MAXIMAL = timedelta(days=7)
-# Une journee de predictions au pas horaire.
-MINIMUM_NOTEES = 24
 
 
 @dataclass(frozen=True)
 class DemandeEntrainement:
-    """Ce que le lanceur recoit. Assez pour tracer pourquoi on reentraine."""
+    """Ce que `tour()` rend. Assez pour tracer pourquoi on reentraine."""
 
     site_id: str
     # "filet" ou "derive".
@@ -63,7 +69,8 @@ class DemandeEntrainement:
     seuil: float | None
 
 
-Lanceur = Callable[[DemandeEntrainement], None]
+# Recoit le site_id, rien d autre.
+Lanceur = Callable[[str], None]
 # (site_id, version) -> seuil de MAE, ou None quand aucun seuil n est connu.
 SourceDeSeuil = Callable[[str, str], float | None]
 
@@ -88,7 +95,6 @@ class Ordonnanceur:
         delai_entre_lancements: timedelta = DELAI_ENTRE_LANCEMENTS,
         delai_de_grace: timedelta = DELAI_DE_GRACE,
         age_maximal: timedelta = AGE_MAXIMAL,
-        minimum_notees: int = MINIMUM_NOTEES,
     ):
         self.sites = sites
         self.mesurer = mesurer
@@ -98,7 +104,6 @@ class Ordonnanceur:
         self.delai_entre_lancements = delai_entre_lancements
         self.delai_de_grace = delai_de_grace
         self.age_maximal = age_maximal
-        self.minimum_notees = minimum_notees
         self._derniers_lancements: dict[str, datetime] = {}
 
     def tour(self) -> list[DemandeEntrainement]:
@@ -124,6 +129,13 @@ class Ordonnanceur:
         if version is None:
             return None
         seuil = self.seuil(site_id, version)
+        if seuil is None:
+            LOGGER.warning(
+                "Site %s : sans modele MLflow, supervision inactive (version %s)",
+                site_id,
+                version,
+            )
+            return None
         raison = self._decider(rapport, seuil, maintenant)
         if raison is None:
             return None
@@ -135,7 +147,7 @@ class Ordonnanceur:
             mae_decision=rapport.mae_decision,
             seuil=seuil,
         )
-        self.lanceur(demande)
+        self.lanceur(site_id)
         self._derniers_lancements[site_id] = maintenant
         LOGGER.info(
             "Site %s : entrainement demande (%s), version %s, MAE %s, seuil %s",
@@ -147,9 +159,7 @@ class Ordonnanceur:
         )
         return demande
 
-    def _decider(
-        self, rapport: RapportSite, seuil: float | None, maintenant: datetime
-    ) -> str | None:
+    def _decider(self, rapport: RapportSite, seuil: float, maintenant: datetime) -> str | None:
         dernier = self._derniers_lancements.get(rapport.site_id)
         if dernier is not None and maintenant - dernier < self.delai_entre_lancements:
             return None
@@ -164,11 +174,7 @@ class Ordonnanceur:
         ):
             return "filet"
 
-        if seuil is None:
-            return None
         self._avertir(rapport, seuil)
-        if rapport.notees_decision < self.minimum_notees:
-            return None
         if notee_depuis is None or notee_depuis < self.delai_de_grace:
             return None
         if rapport.mae_decision is not None and rapport.mae_decision > seuil:

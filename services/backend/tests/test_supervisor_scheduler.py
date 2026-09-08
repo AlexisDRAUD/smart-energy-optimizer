@@ -1,9 +1,9 @@
 """Tests de l ordonnanceur du superviseur ML : decider et lancer, sans mesurer.
 
 Aucune base ici. La mesure est un rapport prepare a l avance, l horloge est
-fixee, et le lanceur note les demandes qu il recoit. Ce qui est verifie, c est
+fixee, et le lanceur note les sites qu on lui demande. Ce qui est verifie, c est
 la decision : quand on demande un entrainement, et surtout quand on ne le
-demande pas (verrou, delai de grace, trop peu de donnees, pas de seuil).
+demande pas (verrou, moins de 24 h de donnees, pas de seuil).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -57,16 +57,16 @@ class Horloge:
 
 
 class Banc:
-    """Un ordonnanceur cable sur des rapports prepares et un lanceur qui note tout."""
+    """Un ordonnanceur cable sur des rapports prepares et un lanceur qui note les sites."""
 
     def __init__(self, seuil: float | None = SEUIL, **reglages):
         self.rapports: dict[str, RapportSite] = {}
-        self.demandes: list[DemandeEntrainement] = []
+        self.lances: list[str] = []
         self.horloge = Horloge()
         self.ordonnanceur = Ordonnanceur(
             sites=lambda: list(self.rapports),
             mesurer=lambda site_id: self.rapports[site_id],
-            lanceur=self.demandes.append,
+            lanceur=self.lances.append,
             seuil=seuil_fixe(seuil),
             horloge=self.horloge,
             **reglages,
@@ -92,7 +92,7 @@ def test_un_site_sain_ne_declenche_rien(banc):
     banc.poser(rapport())
 
     assert banc.tour() == []
-    assert banc.demandes == []
+    assert banc.lances == []
 
 
 def test_sans_version_en_production_il_n_y_a_rien_a_surveiller(banc):
@@ -101,15 +101,37 @@ def test_sans_version_en_production_il_n_y_a_rien_a_surveiller(banc):
     assert banc.tour() == []
 
 
-def test_sans_seuil_seul_le_filet_peut_declencher():
+def test_sans_seuil_mlflow_la_supervision_du_site_est_inactive(caplog):
+    """Version sans modele MLflow (regle simple) : ni derive, ni filet, quel que
+    soit l age du modele. Le premier entrainement d un site est une decision
+    manuelle. Le site est signale et on passe au suivant."""
     banc = Banc(seuil=None)
-    banc.poser(rapport(mae_decision=999.0))
+    banc.poser(
+        rapport(site_id="A", mae_decision=999.0),
+        rapport(site_id="B", mae_decision=999.0, premiere_notation=il_y_a(days=8)),
+        rapport(site_id="C", mae_decision=999.0, premiere_notation=il_y_a(days=30)),
+    )
 
-    assert banc.tour() == []
+    with caplog.at_level("WARNING", logger="app.supervisor.scheduler"):
+        assert banc.tour() == []
 
-    banc.poser(rapport(mae_decision=999.0, premiere_notation=il_y_a(days=8)))
+    assert banc.lances == []
+    for site_id in ("A", "B", "C"):
+        assert f"Site {site_id} : sans modele MLflow, supervision inactive" in caplog.text
 
-    assert [d.raison for d in banc.tour()] == ["filet"]
+
+def test_un_site_sans_seuil_n_empeche_pas_les_autres_d_etre_juges():
+    sans_seuil = "B"
+    banc = Banc()
+    banc.ordonnanceur.seuil = lambda site_id, version: None if site_id == sans_seuil else SEUIL
+    banc.poser(
+        rapport(site_id="A", mae_decision=50.0),
+        rapport(site_id=sans_seuil, mae_decision=50.0, premiere_notation=il_y_a(days=8)),
+        rapport(site_id="C", mae_decision=50.0),
+    )
+
+    assert [d.site_id for d in banc.tour()] == ["A", "C"]
+    assert banc.lances == ["A", "C"]
 
 
 # --- Derive ---------------------------------------------------------------
@@ -128,7 +150,17 @@ def test_une_mae_au_dessus_du_seuil_demande_un_entrainement(banc):
     assert demande.mae_decision == 12.0
     assert demande.seuil == SEUIL
     assert demande.demandee_at == MAINTENANT
-    assert banc.demandes == demandes
+    assert banc.lances == [SITE]
+
+
+def test_le_lanceur_recoit_le_site_id_et_rien_d_autre(banc):
+    appels: list[tuple[tuple, dict]] = []
+    banc.ordonnanceur.lanceur = lambda *args, **kwargs: appels.append((args, kwargs))
+    banc.poser(rapport(mae_decision=50.0))
+
+    banc.tour()
+
+    assert appels == [((SITE,), {})]
 
 
 def test_une_mae_egale_au_seuil_ne_declenche_pas(banc):
@@ -137,22 +169,20 @@ def test_une_mae_egale_au_seuil_ne_declenche_pas(banc):
     assert banc.tour() == []
 
 
-def test_trop_peu_de_predictions_notees_ne_permet_pas_de_conclure(banc):
-    banc.poser(rapport(mae_decision=50.0, notees_decision=23))
-
-    assert banc.tour() == []
-
-    banc.poser(rapport(mae_decision=50.0, notees_decision=24))
-
-    assert [d.raison for d in banc.tour()] == ["derive"]
-
-
-def test_un_modele_frais_n_est_pas_juge_avant_le_delai_de_grace(banc):
-    banc.poser(rapport(mae_decision=50.0, premiere_notation=il_y_a(hours=23)))
+def test_un_modele_n_est_pas_juge_avant_24_h_de_donnees(banc):
+    """L unite est le temps depuis la premiere notation, pas un nombre de points."""
+    banc.poser(rapport(mae_decision=50.0, premiere_notation=il_y_a(hours=23, minutes=59)))
 
     assert banc.tour() == []
 
     banc.poser(rapport(mae_decision=50.0, premiere_notation=il_y_a(hours=24)))
+
+    assert [d.raison for d in banc.tour()] == ["derive"]
+
+
+def test_le_nombre_de_predictions_notees_ne_compte_pas(banc):
+    """Deux points seulement, mais notes depuis plus de 24 h : le verdict tombe."""
+    banc.poser(rapport(mae_decision=50.0, notees_decision=2, notees_alerte=0))
 
     assert [d.raison for d in banc.tour()] == ["derive"]
 
@@ -187,7 +217,7 @@ def test_le_verrou_empeche_de_redemander_avant_24_h(banc):
 
     banc.horloge.avancer(minutes=1)
     assert len(banc.tour()) == 1
-    assert len(banc.demandes) == 2
+    assert banc.lances == [SITE, SITE]
 
 
 def test_le_verrou_est_par_site(banc):
@@ -262,14 +292,14 @@ def test_un_site_en_erreur_n_empeche_pas_les_autres(banc, caplog):
 def test_un_lanceur_qui_echoue_ne_pose_pas_le_verrou(banc):
     banc.poser(rapport(mae_decision=50.0))
 
-    def lanceur_en_panne(demande: DemandeEntrainement) -> None:
+    def lanceur_en_panne(site_id: str) -> None:
         raise RuntimeError("panne")
 
     banc.ordonnanceur.lanceur = lanceur_en_panne
 
     assert banc.tour() == []
 
-    banc.ordonnanceur.lanceur = banc.demandes.append
+    banc.ordonnanceur.lanceur = banc.lances.append
     assert len(banc.tour()) == 1
 
 
@@ -278,9 +308,8 @@ def test_les_reglages_sont_configurables():
         delai_entre_lancements=timedelta(hours=1),
         delai_de_grace=timedelta(hours=1),
         age_maximal=timedelta(days=1),
-        minimum_notees=2,
     )
-    banc.poser(rapport(mae_decision=50.0, notees_decision=2, premiere_notation=il_y_a(hours=1)))
+    banc.poser(rapport(mae_decision=50.0, premiere_notation=il_y_a(hours=1)))
 
     assert [d.raison for d in banc.tour()] == ["derive"]
 
