@@ -169,6 +169,7 @@ class AlertResponse(ContractModel):
     value: float | None
     threshold_value: float | None
     status: Literal["open", "acknowledged", "closed"]
+    origin: Literal["internal", "source"]
     acknowledged_at: ISODateTime | None = Field(
         default=None, json_schema_extra={"format": "date-time"}
     )

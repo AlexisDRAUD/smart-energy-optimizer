@@ -13,11 +13,11 @@ source (API du formateur)
    |
    v  collector          ecrit  raw_readings, raw_snapshots
    |
-   v  etl                ecrit  sites, readings, sensor_status, etl_runs, data_quality_daily
+   v  etl                ecrit  sites, readings, sensor_status, alerts, etl_runs, data_quality_daily
    |
    +--> ml               ne lit que readings et sites, n'ecrit rien en base
    |
-   v  api                ecrit  users, predictions, alerts
+   v  api                ecrit  users, predictions, alertes internes
    |
    v  web                n'ecrit rien, n'accede pas a la base
 ```
@@ -133,7 +133,7 @@ Le référentiel et l'état des capteurs. Petite, non partitionnée, relue souve
 |---|---|---|
 | `id` | `bigserial` | clé technique |
 | `received_at` | `timestamptz` | |
-| `source` | `text` | `api_sites`, `api_sensors` |
+| `source` | `text` | `api_sites`, `api_sensors`, `api_alerts` |
 | `payload` | `jsonb` | la réponse telle quelle |
 
 Deux tables brutes et non une seule, parce que ces lignes n'ont ni le meme volume ni la meme
@@ -338,8 +338,11 @@ ne doit pas créer une seconde prédiction pour le meme instant.
 
 ### `alerts`
 
-Émises par notre API, pas recopiées de la source. Les alertes de la source servent de
-référence de comparaison, elles arrivent dans le brut.
+Les alertes émises localement ont l'origine `internal`. Le collecteur conserve la réponse de
+la source dans `raw_snapshots`, puis l'ETL valide chaque objet et le matérialise avec l'origine
+`source`. Une alerte source mal formée est rejetée et journalisée sans bloquer les autres
+alertes ni les mesures du passage. Le rejeu est idempotent et ne retire jamais un acquittement
+effectué dans EnerVision.
 
 | Colonne | Type | Note |
 |---|---|---|
@@ -352,6 +355,7 @@ référence de comparaison, elles arrivent dans le brut.
 | `value` | `double precision` | la valeur qui a déclenché |
 | `threshold_value` | `double precision` | le seuil franchi |
 | `status` | `text` | `open`, `acknowledged`, `closed` |
+| `origin` | `text` | `internal`, `source` |
 | `acknowledged_at` | `timestamptz` | |
 | `acknowledged_by` | `bigint` | vers `users.id` |
 

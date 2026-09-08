@@ -20,6 +20,7 @@ const columns: Column<ApiAlert>[] = [
     { header: 'Valeur', cell: (alert) => formatNumber(alert.value) },
     { header: 'Seuil', cell: (alert) => formatNumber(alert.threshold_value) },
     { header: 'État', cell: (alert) => statusLabels[alert.status] },
+    { header: 'Origine', cell: (alert) => alert.origin === 'source' ? 'Source collectée' : 'EnerVision' },
 ]
 
 /** Une barre par jour où au moins une alerte a été détectée. */

@@ -237,8 +237,9 @@ la même période. Les trois côte a côte, sinon le chiffre du modèle ne veut 
 défaut, les alertes ouvertes des sept derniers jours, les plus récentes d'abord.
 
 Une alerte rend `id`, `site_id`, `detected_at`, `type`, `severity`, `message`, `value`,
-`threshold_value`, `status`, `acknowledged_at`. Les seuils sont calculés par l'API et rendus
-avec l'alerte : le front affiche "812 kW pour un seuil de 720", il ne le recalcule pas.
+`threshold_value`, `status`, `origin`, `acknowledged_at`. `origin` vaut `source` lorsque
+l'alerte a été collectée puis matérialisée par l'ETL, et `internal` lorsqu'elle a été émise par
+EnerVision. Les valeurs et seuils restent ceux de l'émetteur ; le front ne les recalcule pas.
 
 `summary` rend les compteurs par sévérité et la répartition par jour sur la période demandée.
 C'est ce qui alimente les trois compteurs et le graphe de la maquette Alertes, en un appel
@@ -254,8 +255,8 @@ et 0,05 sortis de nulle part. Aucune table ne porte de recommandations et aucune
 n'a été décidée. La route reviendra quand ce sera le cas, chiffrée **en kWh** et jamais en
 euros, le prix n'étant pas dans le jeu de données.
 
-Les alertes de la source, elles, ne sont pas exposées. Elles arrivent dans la couche brute et
-servent de point de comparaison, pas de contenu du produit.
+Les alertes de la source sont exposées après validation et matérialisation par l'ETL. La copie
+brute reste la trace rejouable du collector ; elle n'est jamais envoyée au frontend.
 
 ## Règles
 

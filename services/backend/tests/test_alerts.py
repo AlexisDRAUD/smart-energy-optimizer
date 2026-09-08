@@ -20,6 +20,7 @@ def test_alerts_are_paginated_and_operator_acknowledges(
         "value",
         "threshold_value",
         "status",
+        "origin",
         "acknowledged_at",
     }
 

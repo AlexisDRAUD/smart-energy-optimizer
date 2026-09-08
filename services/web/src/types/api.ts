@@ -121,6 +121,7 @@ export type ApiAlert = {
     value: number | null
     threshold_value: number | null
     status: AlertStatus
+    origin: 'internal' | 'source'
     acknowledged_at: string | null
 }
 
