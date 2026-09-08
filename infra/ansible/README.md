@@ -91,7 +91,7 @@ le poste et un `inventory.ini` renseigné, ce dont le déploiement automatique n
 | `base` | paquets de base |
 | `users` | groupe et compte de service dédiés, non root, membre du groupe docker |
 | `docker` | moteur Docker, greffon compose, rotation des journaux, service activé au démarrage |
-| `firewall` | ufw, ouverture de SSH, du port du dashboard et de 443, tout le reste fermé |
+| `firewall` | ufw, ouverture de SSH et du port du dashboard, tout le reste fermé |
 | `app` | répertoire applicatif, dépôt à jour, fichier d'environnement en droits 600 |
 | `deploy` | `docker compose pull` puis `up -d`, et affichage de l'état |
 | `backup` | scripts de sauvegarde et de restauration, tâche planifiée quotidienne |
@@ -142,7 +142,9 @@ ansible-lint site.yml
 ## Ce qui n'est pas couvert
 
 - **Pas de HTTPS.** Il faudrait un frontal TLS devant le conteneur `web`, et `COOKIE_SECURE`
-  à `true` une fois en place. Le port 443 est déjà ouvert par le pare-feu pour ce jour-là.
+  à `true` une fois en place. Le port 443 reste fermé jusque-là : ouvrir un port en prévision
+  d'un service qui n'existe pas encore est un confort, pas un principe, et c'est exactement ce
+  que le moindre privilège interdit. Le jour venu, `-e enable_https=true` puis `--tags firewall`.
 - **Pas de provisionnement de la VM elle-même**, qui est fournie par l'école. Si le Proxmox
   était administré par l'équipe, la création de la machine se décrirait en Terraform avec le
   provider correspondant, et ce playbook resterait l'étage de configuration.

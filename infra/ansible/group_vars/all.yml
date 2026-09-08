@@ -34,6 +34,10 @@ backup_minute: "30"
 # couper l acces a la machine ou casser l application : a activer sciemment.
 configure_firewall: true
 harden_ssh: false
+
+# Le port 443 reste ferme tant qu aucun frontal TLS n ecoute derriere. A passer
+# a true le jour ou le TLS est en place, puis rejouer --tags firewall.
+enable_https: false
 create_app_role: false
 
 # Role applicatif, utilise seulement si create_app_role vaut true. Le mot de

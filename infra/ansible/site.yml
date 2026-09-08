@@ -152,10 +152,25 @@
       when: configure_firewall | bool
       tags: [firewall]
 
-    - name: Autoriser HTTPS, pour le jour ou le TLS sera en place
+    # Ferme par defaut, et c est voulu : rien n ecoute en 443 tant qu il n y a
+    # pas de frontal TLS. Ouvrir un port en prevision d un service futur est un
+    # confort, pas un principe, et c est exactement ce que le moindre privilege
+    # interdit. Le jour du TLS : -e enable_https=true, puis --tags firewall.
+    - name: Autoriser HTTPS, seulement si un frontal TLS est en place
       ansible.builtin.command: ufw allow 443/tcp
       changed_when: false
-      when: configure_firewall | bool
+      when:
+        - configure_firewall | bool
+        - enable_https | bool
+      tags: [firewall]
+
+    - name: Refuser HTTPS tant qu aucun frontal TLS n ecoute
+      ansible.builtin.command: ufw delete allow 443/tcp
+      changed_when: false
+      failed_when: false
+      when:
+        - configure_firewall | bool
+        - not (enable_https | bool)
       tags: [firewall]
 
     # Tout le reste est ferme. Les ports de la base, de MLflow et de MinIO ne
