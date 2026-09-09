@@ -391,6 +391,39 @@ td:first-child { font-weight: 700; }
 .alert-item p, .recommendation p { margin: 8px 0; color: var(--muted); font-size: 11px; }
 .alert-item small { color: var(--muted); font-size: 10px; }
 .alert-origin-note { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.alert-feed-summary { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.alert-feed-link { display: inline-block; margin-top: 18px; color: var(--accent); font-size: 11px; font-weight: 700; text-decoration: none; }
+.alert-feed-link:hover { text-decoration: underline; }
+
+.critical-alert-overlay {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(7 25 43 / 58%);
+}
+
+.critical-alert-popup {
+    width: min(460px, 100%);
+    padding: 24px;
+    border: 1px solid #ef9ba7;
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 24px 70px rgb(7 25 43 / 28%);
+}
+
+.critical-alert-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.critical-alert-heading h2 { margin-top: 4px; }
+.critical-alert-heading > button { border: 0; color: var(--muted); background: transparent; font-size: 26px; line-height: 1; cursor: pointer; }
+.critical-alert-kicker { color: #c52d43; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.critical-alert-popup > p { margin: 18px 0 8px; color: var(--ink); font-size: 15px; font-weight: 700; line-height: 1.45; }
+.critical-alert-popup > small { color: var(--muted); font-size: 11px; }
+.critical-alert-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 24px; }
+.critical-alert-actions a, .critical-alert-actions button { padding: 9px 13px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+.critical-alert-actions a { color: var(--accent); text-decoration: none; }
+.critical-alert-actions button { border: 0; color: white; background: #c52d43; cursor: pointer; }
 
 .recommendation { display: flex; gap: 13px; margin-bottom: 18px; }
 

@@ -1,9 +1,10 @@
-import { useCallback } from 'react'
-import { getAlerts } from '../api/alerts'
+import { useCallback, useState } from 'react'
+import { getAlertsPage, type AlertsPage } from '../api/alerts'
 import { getOverview } from '../api/dashboard'
 import { getConsumptionChart } from '../api/consumptionChart'
 import { getLatestReading } from '../api/sites'
 import { ApiError } from '../api/client'
+import { CriticalAlertPopup } from '../components/alerts/CriticalAlertPopup'
 import { ConsumptionChart } from '../components/charts/ConsumptionChart'
 import { DataDetails } from '../components/charts/DataDetails'
 import { DataTable, type Column } from '../components/common/DataTable'
@@ -13,12 +14,12 @@ import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { chartWindow } from '../utils/consumptionChart'
 import { useFilters } from '../hooks/useFilters'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
-import type { ApiAlert, ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
+import type { ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
 import { formatAlertOrigin, formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
 type DashboardData = {
     overview: ApiOverview
-    alerts: ApiAlert[]
+    alerts: AlertsPage
     latest: ApiLatestReading | null
     chart: ApiConsumptionChart
 }
@@ -34,7 +35,7 @@ export function DashboardPage() {
         })
         const [overview, alerts, chart, latest] = await Promise.all([
             getOverview(signal),
-            getAlerts({ start, limit: 3 }, signal),
+            getAlertsPage({ start, limit: 100 }, signal),
             getConsumptionChart(siteId, start, end, signal),
             latestRequest,
         ])
@@ -53,8 +54,18 @@ export function DashboardPage() {
     const prediction = futurePredictions[futurePredictions.length - 1]
     const comparison = data?.chart.last_evaluated
     const deviation = comparison?.deviation_percent ?? null
+    const criticalAlert = data?.alerts.items.find((alert) => alert.severity === 'critical')
+    const [dismissedCriticalId, setDismissedCriticalId] = useState<number | null>(() => {
+        const stored = sessionStorage.getItem('enervision_dismissed_critical_alert')
+        return stored === null ? null : Number(stored)
+    })
 
     const siteNameOf = (siteIdentifier: string) => sites.find((site) => site.site_id === siteIdentifier)?.site_name ?? siteIdentifier
+    const dismissCriticalAlert = () => {
+        if (!criticalAlert) return
+        sessionStorage.setItem('enervision_dismissed_critical_alert', String(criticalAlert.id))
+        setDismissedCriticalId(criticalAlert.id)
+    }
 
     const columns: Column<ApiOverviewSite>[] = [
         { header: 'Site', cell: (row) => siteNameOf(row.site_id) },
@@ -145,8 +156,11 @@ export function DashboardPage() {
                         <div className="right-column">
                             <article className="side-card">
                                 <h2>Alertes récentes du parc</h2>
-                                {data.alerts.length
-                                    ? data.alerts.slice(0, 3).map((alert) => (
+                                <p className="alert-feed-summary">
+                                    {data.alerts.total.toLocaleString('fr-FR')} alerte{data.alerts.total > 1 ? 's' : ''} ouverte{data.alerts.total > 1 ? 's' : ''} sur les sites accessibles
+                                </p>
+                                {data.alerts.items.length
+                                    ? data.alerts.items.slice(0, 3).map((alert) => (
                                         <div className="alert-item" key={alert.id}>
                                             <span className={`metric-dot ${severityDot(alert.severity)}`} />
                                             <div>
@@ -156,6 +170,7 @@ export function DashboardPage() {
                                         </div>
                                     ))
                                     : <p className="empty-state">Aucune alerte sur les sites accessibles pendant la période.</p>}
+                                <a className="alert-feed-link" href="#/alertes">Voir le détail des alertes</a>
                             </article>
 
                         </div>
@@ -176,6 +191,10 @@ export function DashboardPage() {
                             emptyLabel="Aucun site avec un relevé exploitable."
                         />
                     </article>
+
+                    {criticalAlert && criticalAlert.id !== dismissedCriticalId && (
+                        <CriticalAlertPopup alert={criticalAlert} siteName={siteNameOf(criticalAlert.site_id)} onClose={dismissCriticalAlert} />
+                    )}
                 </>
             )}
         </>

@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DashboardPage } from '../src/pages/DashboardPage'
 import { useFilters } from '../src/hooks/useFilters'
 import { getConsumptionChart } from '../src/api/consumptionChart'
 import { getLatestReading } from '../src/api/sites'
 import { getOverview } from '../src/api/dashboard'
-import { getAlerts } from '../src/api/alerts'
+import { getAlertsPage } from '../src/api/alerts'
 import type { ApiConsumptionChart, ApiLatestReading } from '../src/types/api'
 import type { Period } from '../src/data/periods'
 
@@ -40,11 +40,12 @@ function filters(period: Period = 'day'): ReturnType<typeof useFilters> {
 }
 
 beforeEach(() => {
+    sessionStorage.clear()
     jest.mocked(useFilters).mockReturnValue(filters())
     jest.mocked(getConsumptionChart).mockResolvedValue(fixture())
     jest.mocked(getLatestReading).mockResolvedValue({ consumption_kwh: 999, measured_at: end } as ApiLatestReading)
     jest.mocked(getOverview).mockResolvedValue({ site_count: 1, total_consumption_kw: 999, total_capacity_kw: 1000, average_load_rate_percent: 99.9, by_site: [], sites_without_valid_reading: [], sites_without_valid_reading_count: 0, incomplete: false })
-    jest.mocked(getAlerts).mockResolvedValue([])
+    jest.mocked(getAlertsPage).mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 })
 })
 
 test.each(['day', 'week', 'month'] as const)('historical comparison and prediction remain visible on %s', async (period) => {
@@ -67,14 +68,14 @@ test.each(['day', 'week', 'month'] as const)('historical comparison and predicti
     expect(chart).toHaveAttribute('data-future-end', '2026-09-02T14:00:00Z')
     expect(container.querySelector('.future-series .prediction-points circle')).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'Prévisions futures H+2' })).not.toBeInTheDocument()
-    expect(jest.mocked(getAlerts).mock.calls[0][0]).toEqual(expect.objectContaining({ limit: 3 }))
-    expect(jest.mocked(getAlerts).mock.calls[0][0]).not.toHaveProperty('siteId')
+    expect(jest.mocked(getAlertsPage).mock.calls[0][0]).toEqual(expect.objectContaining({ limit: 100 }))
+    expect(jest.mocked(getAlertsPage).mock.calls[0][0]).not.toHaveProperty('siteId')
     const [, requestedStart, requestedEnd] = jest.mocked(getConsumptionChart).mock.calls[0]
     expect(Date.parse(requestedEnd) - Date.parse(requestedStart)).toBe(({ day: 1, week: 7, month: 30 }[period]) * 86400000)
 })
 
 test('recent alerts include another accessible site regardless of the chart selection', async () => {
-    jest.mocked(getAlerts).mockResolvedValue([{
+    jest.mocked(getAlertsPage).mockResolvedValue({ items: [{
         id: 42,
         site_id: 'PAR-01',
         detected_at: end,
@@ -86,7 +87,7 @@ test('recent alerts include another accessible site regardless of the chart sele
         status: 'open',
         origin: 'source',
         acknowledged_at: null,
-    }])
+    }], total: 27, limit: 100, offset: 0 })
 
     render(<DashboardPage />)
 
@@ -94,6 +95,37 @@ test('recent alerts include another accessible site regardless of the chart sele
     expect(alerts).toHaveTextContent('Pic détecté')
     expect(alerts).toHaveTextContent('Paris')
     expect(alerts).toHaveTextContent('Source collectée')
+    expect(alerts).toHaveTextContent('27 alertes ouvertes sur les sites accessibles')
+    expect(within(alerts).getByRole('link', { name: 'Voir le détail des alertes' })).toHaveAttribute('href', '#/alertes')
+})
+
+test('shows each critical fleet alert once per browser tab', async () => {
+    jest.mocked(getAlertsPage).mockResolvedValue({ items: [{
+        id: 99,
+        site_id: 'PAR-01',
+        detected_at: end,
+        type: 'outage',
+        severity: 'critical',
+        message: 'Risque critique',
+        value: 900,
+        threshold_value: 800,
+        status: 'open',
+        origin: 'source',
+        acknowledged_at: null,
+    }], total: 1, limit: 100, offset: 0 })
+
+    const { unmount } = render(<DashboardPage />)
+    const popup = await screen.findByRole('alertdialog', { name: 'Paris' })
+    expect(popup).toHaveTextContent('Risque critique')
+    expect(popup).toHaveTextContent('Source collectée')
+    fireEvent.click(within(popup).getByRole('button', { name: 'Fermer' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('enervision_dismissed_critical_alert')).toBe('99')
+
+    unmount()
+    render(<DashboardPage />)
+    await screen.findByText('Alertes récentes du parc')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 })
 
 test('no evaluated pair is explicitly unavailable', async () => {
