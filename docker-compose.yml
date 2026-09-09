@@ -63,6 +63,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    # Sans cette ligne la base ne repart pas apres un redemarrage de la machine,
+    # et l API, le collector et l ETL, eux, repartent et tournent dans le vide.
+    restart: unless-stopped
 
   # Applique le schema, cree les comptes, reprend l historique, puis s arrete.
   # Les autres conteneurs attendent qu il se termine sans erreur, d ou la reprise
@@ -169,7 +172,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    restart: "no"
+    # Meme raison que la base. L entrainement au demarrage est pilote par
+    # ML_TRAIN_ON_START, a 0 en production : le redemarrage ne reentraine pas.
+    restart: unless-stopped
 
 
   minio:

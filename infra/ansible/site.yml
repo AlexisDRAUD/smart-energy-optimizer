@@ -1,0 +1,409 @@
+---
+# Deploiement d EnerVision sur la VM de l ecole.
+#
+# Uniquement des modules ansible.builtin : le playbook tourne sans
+# ansible-galaxy, donc sans dependre d un acces reseau depuis le poste.
+#
+#   ansible-playbook site.yml --check --diff        simulation
+#   ansible-playbook site.yml                       application
+#   ansible-playbook site.yml --tags deploy         redeploiement seul
+#
+# Les etiquettes permettent de rejouer un etage sans toucher aux autres :
+# base, users, docker, firewall, app, deploy, backup, dbrole, runner.
+
+- name: Preparer la VM et deployer EnerVision
+  hosts: enervision
+  become: true
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    - name: Paquets de base
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - git
+          - gnupg
+          - ufw
+          # Le job de deploiement rejoue ce playbook depuis la VM : Ansible
+          # doit donc exister sur la machine, pas seulement sur le poste.
+          - ansible-core
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [base]
+
+    # ------------------------------------------------------------------
+    # Un compte de service dedie, jamais root. Il porte l application et
+    # appartient au groupe docker, ce qui lui suffit pour piloter le compose.
+    - name: Groupe applicatif
+      ansible.builtin.group:
+        name: "{{ app_group }}"
+        state: present
+      tags: [users]
+
+    - name: Compte de service
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
+        groups: docker
+        append: true
+        shell: /bin/bash
+        create_home: true
+        state: present
+      tags: [users]
+
+    # Sans cela, le job de deploiement ne peut pas rejouer le playbook : il
+    # tourne sous ce compte et chaque tache passe par become. La regle est
+    # validee par visudo avant d etre ecrite, une erreur de syntaxe dans ce
+    # fichier rendrait sudo inutilisable sur toute la machine.
+    - name: Sudo sans mot de passe pour le compte de service
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/{{ deploy_user }}
+        content: "{{ deploy_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        mode: "0440"
+        validate: visudo -cf %s
+      when: runner_sudo | bool
+      tags: [users]
+
+    # Desactive par defaut : couper l authentification par mot de passe avant
+    # d avoir verifie que sa cle fonctionne, c est se fermer la porte de la VM.
+    # A activer avec -e harden_ssh=true, une fois une connexion par cle etablie.
+    - name: Durcir SSH, cle uniquement
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-enervision.conf
+        mode: "0644"
+        content: |
+          PasswordAuthentication no
+          PermitRootLogin no
+      when: harden_ssh | bool
+      notify: Recharger SSH
+      tags: [users]
+
+    # ------------------------------------------------------------------
+    - name: Repertoire des cles apt
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      tags: [docker]
+
+    - name: Cle du depot Docker
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+      tags: [docker]
+
+    - name: Depot Docker
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+        filename: docker
+        state: present
+      tags: [docker]
+
+    - name: Moteur Docker et greffon compose
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      tags: [docker]
+
+    # Plafonner les journaux des conteneurs. Sans cela le disque se remplit.
+    - name: Rotation des journaux Docker
+      ansible.builtin.template:
+        src: docker-daemon.json.j2
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+      notify: Redemarrer Docker
+      tags: [docker]
+
+    # Le service active au demarrage, sinon les conteneurs en
+    # restart: unless-stopped ne repartent pas apres un redemarrage machine.
+    - name: Docker actif et lance au demarrage
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+      tags: [docker]
+
+    # ------------------------------------------------------------------
+    # SSH est autorise avant l activation du pare feu, dans cet ordre et pas
+    # l inverse : activer d abord fermerait la session en cours.
+    - name: Autoriser SSH
+      ansible.builtin.command: ufw allow OpenSSH
+      changed_when: false
+      when: configure_firewall | bool
+      tags: [firewall]
+
+    - name: Autoriser le dashboard
+      ansible.builtin.command: "ufw allow {{ web_port }}/tcp"
+      changed_when: false
+      when: configure_firewall | bool
+      tags: [firewall]
+
+    # Ferme par defaut, et c est voulu : rien n ecoute en 443 tant qu il n y a
+    # pas de frontal TLS. Ouvrir un port en prevision d un service futur est un
+    # confort, pas un principe, et c est exactement ce que le moindre privilege
+    # interdit. Le jour du TLS : -e enable_https=true, puis --tags firewall.
+    - name: Autoriser HTTPS, seulement si un frontal TLS est en place
+      ansible.builtin.command: ufw allow 443/tcp
+      changed_when: false
+      when:
+        - configure_firewall | bool
+        - enable_https | bool
+      tags: [firewall]
+
+    - name: Refuser HTTPS tant qu aucun frontal TLS n ecoute
+      ansible.builtin.command: ufw delete allow 443/tcp
+      changed_when: false
+      failed_when: false
+      when:
+        - configure_firewall | bool
+        - not (enable_https | bool)
+      tags: [firewall]
+
+    # Tout le reste est ferme. Les ports de la base, de MLflow et de MinIO ne
+    # sont de toute facon publies que sur l adresse locale par le compose.
+    - name: Refuser le reste en entree et activer le pare feu
+      ansible.builtin.command: ufw --force enable
+      changed_when: false
+      when: configure_firewall | bool
+      tags: [firewall]
+
+    # ------------------------------------------------------------------
+    - name: Repertoire applicatif
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0750"
+      tags: [app]
+
+    # Le depot n est la que pour le docker-compose.yml et ses contextes. Le code
+    # applicatif vient des images publiees, pas de ce clone.
+    - name: Depot a jour
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+        force: true
+      become: true
+      become_user: "{{ app_user }}"
+      tags: [app]
+
+    # Droits 600 et proprietaire le compte de service : le fichier porte les
+    # secrets, personne d autre n a a le lire.
+    - name: Fichier d environnement
+      ansible.builtin.copy:
+        src: "{{ env_file_src }}"
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0600"
+      tags: [app]
+
+    # ------------------------------------------------------------------
+    # Les images sont tirees explicitement ici. C est ce qui permet de laisser
+    # IMAGE_PULL_POLICY a missing : au redemarrage de la VM, les conteneurs
+    # repartent sur l image locale, sans avoir a joindre le registre.
+    - name: Tirer les images publiees
+      ansible.builtin.command:
+        cmd: docker compose pull
+        chdir: "{{ app_dir }}"
+      become: true
+      become_user: "{{ app_user }}"
+      register: compose_pull
+      changed_when: true
+      tags: [deploy]
+
+    - name: Demarrer la pile
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ app_dir }}"
+      become: true
+      become_user: "{{ app_user }}"
+      register: compose_up
+      changed_when: true
+      tags: [deploy]
+
+    - name: Etat des services
+      ansible.builtin.command:
+        cmd: docker compose ps
+        chdir: "{{ app_dir }}"
+      become: true
+      become_user: "{{ app_user }}"
+      register: compose_ps
+      changed_when: false
+      tags: [deploy]
+
+    - name: Afficher l etat
+      ansible.builtin.debug:
+        var: compose_ps.stdout_lines
+      tags: [deploy]
+
+    # ------------------------------------------------------------------
+    - name: Repertoire des sauvegardes
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0750"
+      tags: [backup]
+
+    - name: Script de sauvegarde
+      ansible.builtin.template:
+        src: backup-db.sh.j2
+        dest: /usr/local/bin/enervision-backup-db
+        owner: root
+        group: "{{ app_group }}"
+        mode: "0750"
+      tags: [backup]
+
+    - name: Script de restauration
+      ansible.builtin.template:
+        src: restore-db.sh.j2
+        dest: /usr/local/bin/enervision-restore-db
+        owner: root
+        group: "{{ app_group }}"
+        mode: "0750"
+      tags: [backup]
+
+    - name: Sauvegarde quotidienne
+      ansible.builtin.cron:
+        name: enervision-backup-db
+        user: "{{ app_user }}"
+        hour: "{{ backup_hour }}"
+        minute: "{{ backup_minute }}"
+        job: "/usr/local/bin/enervision-backup-db >> /var/log/enervision-backup.log 2>&1"
+      tags: [backup]
+
+    # ------------------------------------------------------------------
+    # Desactive par defaut. Le role existe, mais basculer l application dessus
+    # demande de donner une seconde URL de connexion au compose, pour que les
+    # migrations gardent le compte proprietaire et que l API tourne avec
+    # celui ci. A faire sciemment, pas la veille d une livraison.
+    - name: Refuser de creer le role sans mot de passe
+      ansible.builtin.fail:
+        msg: >-
+          create_app_role demande app_role_password.
+          Le passer en ligne de commande : -e app_role_password=...
+      when:
+        - create_app_role | bool
+        - app_role_password | length == 0
+      tags: [dbrole]
+
+    # Le SQL passe par un fichier, pas par la ligne de commande : un mot de
+    # passe en argument se lit dans ps et se retrouve dans les journaux.
+    - name: Deposer le SQL du role applicatif
+      ansible.builtin.template:
+        src: app-role.sql.j2
+        dest: "{{ app_dir }}/.app-role.sql"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0600"
+      become: true
+      become_user: "{{ app_user }}"
+      no_log: true
+      when: create_app_role | bool
+      tags: [dbrole]
+
+    # Le nom du compte et celui de la base ne sont pas repetes ici : ils sont
+    # lus dans l environnement du conteneur, qui les tient du meme .env que le
+    # reste de la pile. Une seule source de verite.
+    - name: Appliquer le role applicatif
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T db
+          sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+          < .app-role.sql
+        chdir: "{{ app_dir }}"
+      become: true
+      become_user: "{{ app_user }}"
+      when: create_app_role | bool
+      changed_when: true
+      tags: [dbrole]
+
+    - name: Effacer le SQL du role applicatif
+      ansible.builtin.file:
+        path: "{{ app_dir }}/.app-role.sql"
+        state: absent
+      when: create_app_role | bool
+      tags: [dbrole]
+
+    # ------------------------------------------------------------------
+    # Le runner permet au job de deploiement de tourner sur la VM sans lui
+    # ouvrir de port : il sort vers GitHub, GitHub n entre jamais.
+    # Le jeton d enregistrement est court, il se passe en ligne de commande :
+    #   ansible-playbook site.yml --tags runner -e runner_token=XXXX
+    - name: Repertoire du runner
+      ansible.builtin.file:
+        path: "{{ app_dir }}-runner"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0750"
+      when: runner_token | length > 0
+      tags: [runner]
+
+    - name: Archive du runner
+      ansible.builtin.unarchive:
+        src: >-
+          https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-x64-{{ runner_version }}.tar.gz
+        dest: "{{ app_dir }}-runner"
+        remote_src: true
+        creates: "{{ app_dir }}-runner/config.sh"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+      when: runner_token | length > 0
+      tags: [runner]
+
+    - name: Enregistrer le runner
+      ansible.builtin.command:
+        cmd: >-
+          ./config.sh --unattended --replace
+          --url {{ repo_url | regex_replace('\.git$', '') }}
+          --token {{ runner_token }}
+          --labels {{ runner_labels }}
+          --name {{ inventory_hostname }}
+        chdir: "{{ app_dir }}-runner"
+        creates: "{{ app_dir }}-runner/.runner"
+      become: true
+      become_user: "{{ app_user }}"
+      when: runner_token | length > 0
+      tags: [runner]
+
+    - name: Installer et lancer le service du runner
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+        chdir: "{{ app_dir }}-runner"
+      loop:
+        - ./svc.sh install {{ app_user }}
+        - ./svc.sh start
+      register: runner_svc
+      changed_when: true
+      when: runner_token | length > 0
+      tags: [runner]
+
+  handlers:
+    - name: Redemarrer Docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+
+    - name: Recharger SSH
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded

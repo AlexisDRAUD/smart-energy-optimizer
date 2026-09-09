@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Sauvegarde logique de la base, ecrite par Ansible. Ne pas editer sur la VM.
+#
+# Le dump porte sur la donnee, l instantane de l hyperviseur porte sur la
+# machine. Les deux ne se remplacent pas : un instantane pris pendant une
+# ecriture peut restaurer une base incoherente, un dump non.
+set -euo pipefail
+
+APP_DIR="{{ app_dir }}"
+BACKUP_DIR="{{ backup_dir }}"
+KEEP_DAYS="{{ backup_keep_days }}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+TARGET="${BACKUP_DIR}/enervision-${STAMP}.sql.gz"
+
+mkdir -p "${BACKUP_DIR}"
+cd "${APP_DIR}"
+
+# Le nom du compte et celui de la base sont lus dans l environnement du
+# conteneur, qui les tient du .env. Rien n est redeclare ici, et le mot de passe
+# ne transite jamais par la ligne de commande.
+#
+# set -o pipefail est indispensable : sans lui, le code de retour serait celui
+# de gzip, et un dump en echec passerait pour une reussite juste avant que la
+# rotation ne supprime la derniere sauvegarde valide.
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  | gzip -9 > "${TARGET}.partiel"
+
+# Renommage seulement apres succes : un fichier au nom definitif est un fichier
+# complet, ce qui evite de restaurer une sauvegarde tronquee.
+mv "${TARGET}.partiel" "${TARGET}"
+
+if [ ! -s "${TARGET}" ]; then
+  echo "Sauvegarde vide, quelque chose a echoue : ${TARGET}" >&2
+  exit 1
+fi
+
+find "${BACKUP_DIR}" -name 'enervision-*.sql.gz' -mtime "+${KEEP_DAYS}" -delete
+
+echo "Sauvegarde ecrite : ${TARGET} ($(du -h "${TARGET}" | cut -f1))"
