@@ -32,6 +32,12 @@ backup_minute: "30"
 
 # Interrupteurs. Les deux derniers sont a false par defaut parce qu ils peuvent
 # couper l acces a la machine ou casser l application : a activer sciemment.
+# La VM de l ecole arrive avec Docker et le greffon compose deja installes, et
+# son reseau refuse download.docker.com. Installer depuis le depot officiel
+# n est donc ni utile ni possible ici. Repasser a true sur une machine vierge
+# qui, elle, peut joindre ce depot.
+install_docker: false
+
 configure_firewall: true
 harden_ssh: false
 
