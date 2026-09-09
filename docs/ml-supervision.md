@@ -31,7 +31,7 @@ d'entraînement qui compare et promeut.
    |---|---|---|
    | *inactif* | pas de seuil (version sans modèle dans le registre, MLflow injoignable) | WARNING, site suivant |
    | `verrou` | un lancement pour ce site il y a moins de 24 h | rien |
-   | `filet` | version notée depuis plus de 7 jours et rien lancé depuis 7 jours | lancement |
+   | `filet` | version notée depuis au moins 7 jours et rien lancé depuis au moins 7 jours | lancement |
    | `grace` | version notée depuis moins de 24 h | rien |
    | `derive` | MAE 7 j > seuil | lancement |
    | `aucun` | MAE 7 j ≤ seuil | rien |
@@ -168,10 +168,12 @@ tient.
 ## Dépendances vers les autres lots
 
 **Lot API / prédiction** — *préalable à toute détection de dérive.*
-`prediction_service.py` écrit aujourd'hui `model_version = "local-1"` (moyenne mobile). Le
-chargement du registre (`models:/<prefix>_<site>@production`) existait sur la branche `…/ML` et
-a été retiré par `df09a3f`. Sans une version du registre dans `predictions.model_version`, le
-superviseur n'a pas de seuil et reste inactif partout.
+`prediction_service.py` écrit aujourd'hui `model_version = "local-1"` (moyenne mobile), appelé
+par deux processus : la boucle de prédiction de l'API et le conteneur `model`
+(`services/backend/model/predict.py`), qui rejoue `refresh_stored_predictions` toutes les 60 s.
+Le chargement du registre (`models:/<prefix>_<site>@production`) existait sur la branche `…/ML`
+et a été retiré par `df09a3f`. Sans une version du registre dans `predictions.model_version`,
+le superviseur n'a pas de seuil et reste inactif partout.
 
 **Lot ML / entraînement** — *préalable au lanceur réel et au seuil de la décision 2.* Question
 posée au propriétaire du ML, telle quelle :
