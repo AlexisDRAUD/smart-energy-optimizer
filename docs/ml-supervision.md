@@ -169,9 +169,9 @@ tient.
 
 **Lot API / prédiction** — *préalable à toute détection de dérive.*
 `prediction_service.py` écrit aujourd'hui `model_version = "local-1"` (moyenne mobile), appelé
-par deux processus : la boucle de prédiction de l'API et le conteneur `model`
-(`services/backend/model/predict.py`), qui rejoue `refresh_stored_predictions` toutes les 60 s.
-Le chargement du registre (`models:/<prefix>_<site>@production`) existait sur la branche `…/ML`
+par le conteneur `model` (`services/backend/model/predict.py`), qui rejoue
+`refresh_stored_predictions` toutes les 60 s ; la boucle de prédiction de l'API a été retirée
+par `564cb41`. Le chargement du registre (`models:/<prefix>_<site>@production`) existait sur la branche `…/ML`
 et a été retiré par `df09a3f`. Sans une version du registre dans `predictions.model_version`,
 le superviseur n'a pas de seuil et reste inactif partout.
 
