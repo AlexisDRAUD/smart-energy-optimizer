@@ -277,6 +277,16 @@
         mode: "0750"
       tags: [backup]
 
+    # Absent de certaines images minimales, et rien ne le cree avant nous.
+    - name: Repertoire des binaires locaux
+      ansible.builtin.file:
+        path: /usr/local/bin
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [backup]
+
     - name: Script de sauvegarde
       ansible.builtin.template:
         src: backup-db.sh.j2
