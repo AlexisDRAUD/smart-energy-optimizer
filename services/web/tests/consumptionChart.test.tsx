@@ -48,6 +48,30 @@ test('empty chart keeps requested domain and future remains outside historical c
     expect(container.querySelector('.prediction-points')).not.toBeInTheDocument()
 })
 
+test('renders future predictions in the real chart with a shared scale and an explicit enlarged zone', () => {
+    const historicalEnd = at(60)
+    const futureEnd = at(180)
+    const { container } = render(
+        <ConsumptionChart
+            points={[real(59, 340)]}
+            predictions={[]}
+            futurePredictions={[prediction(61), prediction(62), prediction(63)]}
+            start={start}
+            end={historicalEnd}
+            futureEnd={futureEnd}
+            cadenceSeconds={60}
+        />,
+    )
+
+    const chart = screen.getByRole('img', { name: 'Consommation réelle et prédite' })
+    expect(chart).toHaveAttribute('data-end', historicalEnd)
+    expect(chart).toHaveAttribute('data-future-end', futureEnd)
+    expect(container.querySelector('.historical-series .real-points circle')).toBeInTheDocument()
+    expect(container.querySelector('.future-series .prediction-line')).toBeInTheDocument()
+    expect(container.querySelector('.future-zone .now-line')).toBeInTheDocument()
+    expect(screen.getByText('Futur H+2 (zone agrandie)')).toBeInTheDocument()
+})
+
 test('server continuity joins spaced LTTB points and keeps actual breaks', () => {
     const points = [
         { time: base, value: 340, segmentStart: true },

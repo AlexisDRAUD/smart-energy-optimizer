@@ -88,8 +88,8 @@ export function DashboardPage() {
                     <section className="card-grid">
                         <MetricCard
                             label="Consommation actuelle"
-                            value={formatEnergy(currentValue)}
-                            hint={data.latest ? formatDateTime(data.latest.measured_at) : 'Aucun relevé disponible'}
+                            value={currentValue === null ? 'Mesure manquante' : formatEnergy(currentValue)}
+                            hint={<>{data.latest ? formatDateTime(data.latest.measured_at) : 'Aucun relevé disponible'}{currentValue === null && <><br />La dernière mesure ne contient pas de consommation. Une prévision peut exister à partir de relevés antérieurs.</>}</>}
                             dot="blue"
                         />
                         <MetricCard
@@ -130,7 +130,9 @@ export function DashboardPage() {
                                 </div>
                             </div>
                             <p className="chart-context">Du {formatDateTime(data.chart.start)} au {formatDateTime(data.chart.end)} · heures locales</p>
-                            <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
+                            <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} futurePredictions={data.chart.future_predictions} futureEnd={data.chart.future_end} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
+                            <p className="chart-context">Zone teintée : futur H+2 agrandi pour rester lisible. L’échelle de consommation reste commune. L’écart n’est évaluable qu’à réception du réel au même instant.</p>
+                            {data.chart.future_coverage.valid_minutes === 0 && <p className="chart-context">Emplacement réservé aux prévisions futures : aucune valeur disponible.</p>}
                             {data.chart.prediction_coverage.valid_minutes === 0 && <p className="chart-context">Aucune prédiction historique exploitable pour cette version sur la période.</p>}
                             <div className="data-quality-summary" aria-label="Qualité des données réelles">
                                 <span><small>Couverture exploitable</small><strong>{formatPercent(data.chart.reading_coverage.percent)}</strong></span>
@@ -141,10 +143,6 @@ export function DashboardPage() {
                         </article>
 
                         <div className="right-column">
-                            <article className="side-card">
-                                <h2>Prévisions futures H+2</h2>
-                                <ConsumptionChart points={[]} predictions={data.chart.future_predictions} start={data.chart.end} end={data.chart.future_end} cadenceSeconds={data.chart.cadence_seconds} label="Prévisions futures H+2" />
-                            </article>
                             <article className="side-card">
                                 <h2>Alertes récentes</h2>
                                 {data.alerts.length
