@@ -21,6 +21,10 @@
     - name: Paquets de base
       ansible.builtin.apt:
         name:
+          # Sans acl, Ansible ne sait pas donner ses fichiers temporaires a un
+          # compte non privilegie : chaque tache en become_user echoue sur un
+          # chmod invalide. C est le prerequis le moins evident de ce playbook.
+          - acl
           - ca-certificates
           - curl
           - git
