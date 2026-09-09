@@ -58,7 +58,6 @@ class Settings(BaseSettings):
     # Age au dela duquel le profil d imputation d un site est recalcule.
     imputation_profile_refresh_hours: int = 24
 
-    prediction_refresh_interval_seconds: int = 60
     prediction_horizon_minutes: int = 120
     # Cadence de la boucle du worker autonome services/backend/model.
     prediction_worker_interval_seconds: int = 60

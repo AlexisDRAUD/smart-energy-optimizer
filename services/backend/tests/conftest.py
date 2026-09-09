@@ -71,6 +71,7 @@ def database() -> Generator[None, None, None]:
 
     from app.db.seed import seed_demo_data
     from app.db.session import SessionLocal, engine
+    from app.services.prediction_service import refresh_stored_predictions
 
     engine.dispose()
     _recreate_test_database()
@@ -79,6 +80,11 @@ def database() -> Generator[None, None, None]:
     command.upgrade(alembic_config, "head")
     with SessionLocal() as db:
         seed_demo_data(db)
+    # En production, le conteneur "model" (model/predict.py) ecrit une prevision
+    # a l'horizon pour chaque site des le demarrage. On rejoue ce premier passage
+    # ici pour que les tests partent du meme etat.
+    with SessionLocal() as db:
+        refresh_stored_predictions(db)
     yield
     engine.dispose()
     _drop_test_database()
