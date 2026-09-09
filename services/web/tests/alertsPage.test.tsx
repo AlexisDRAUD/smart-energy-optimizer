@@ -9,6 +9,7 @@ jest.mock('../src/hooks/useFilters')
 const detectedAt = '2026-09-08T08:05:00Z'
 
 beforeEach(() => {
+    window.location.hash = '#/alertes'
     jest.mocked(useFilters).mockReturnValue({
         sites: [{ site_id: 'SITE001', site_name: 'Site', site_type: 'office', location: 'Paris', capacity_kw: 500, status: 'active', last_seen_at: detectedAt }],
         siteId: 'SITE001', setSiteId: jest.fn(), period: 'day', setPeriod: jest.fn(),
@@ -35,4 +36,19 @@ test('shows materialized source alerts with their origin', async () => {
     expect(screen.getByText('Source collectée')).toBeInTheDocument()
     expect(screen.getByText('Règle interne — non attribuée au ML')).toBeInTheDocument()
     expect(screen.queryByText(/raw|brut/i)).not.toBeInTheDocument()
+})
+
+test('a notification link selects and highlights the related alert', async () => {
+    const setPeriod = jest.fn()
+    jest.mocked(useFilters).mockReturnValue({
+        ...jest.mocked(useFilters)(),
+        setPeriod,
+    })
+    window.location.hash = '#/alertes?site_id=SITE001&alert_id=2'
+
+    render(<AlertsPage />)
+
+    expect(await screen.findByText('Alerte interne')).toBeInTheDocument()
+    expect(setPeriod).toHaveBeenCalledWith('week')
+    expect(document.getElementById('alert-2')).toHaveClass('alert-row-highlight')
 })

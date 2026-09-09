@@ -79,8 +79,6 @@ function App() {
                         </div>
                     </div>
 
-                    <FleetCriticalNotifications />
-
                     <div className="nav-label">Navigation</div>
                     <nav aria-label="Navigation principale">
                         {navigationRoutes.map((item) => (
@@ -100,6 +98,8 @@ function App() {
                         ))}
                     </div>
                 </aside>
+
+                <FleetCriticalNotifications />
 
                 <section className="dashboard-content">
                     <header className="topbar">

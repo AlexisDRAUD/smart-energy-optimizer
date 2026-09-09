@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAlerts } from '../api/alerts'
 import { ErrorBarChart, type AlertDay } from '../components/charts/ErrorBarChart'
 import { DataTable, type Column } from '../components/common/DataTable'
@@ -42,6 +42,21 @@ function countBySeverity(alerts: ApiAlert[], ...severities: Severity[]) {
 
 export function AlertsPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
+    const [currentHash, setCurrentHash] = useState(window.location.hash)
+    useEffect(() => {
+        const updateHash = () => setCurrentHash(window.location.hash)
+        window.addEventListener('hashchange', updateHash)
+        return () => window.removeEventListener('hashchange', updateHash)
+    }, [])
+    const notificationParams = new URLSearchParams(currentHash.split('?')[1] ?? '')
+    const linkedSiteId = notificationParams.get('site_id')
+    const linkedAlertId = Number(notificationParams.get('alert_id')) || null
+
+    useEffect(() => {
+        if (!linkedSiteId || !sites.some((site) => site.site_id === linkedSiteId)) return
+        if (siteId !== linkedSiteId) setSiteId(linkedSiteId)
+        if (period !== 'week') setPeriod('week')
+    }, [linkedSiteId, period, setPeriod, setSiteId, siteId, sites])
     // Une seule requête, donc une seule source pour les compteurs, le
     // graphique et le tableau. /alerts/summary ne sait pas filtrer par site,
     // ses chiffres porteraient sur tout le parc.
@@ -56,6 +71,11 @@ export function AlertsPage() {
         errorMessage: 'Impossible de charger les alertes.',
     })
     const alerts = data ?? []
+
+    useEffect(() => {
+        if (linkedAlertId === null || !alerts.some((alert) => alert.id === linkedAlertId)) return
+        document.getElementById(`alert-${linkedAlertId}`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    }, [alerts, linkedAlertId])
 
     const chartData = useMemo(() => alertsByDay(alerts), [alerts])
 
@@ -104,7 +124,14 @@ export function AlertsPage() {
                     <div><h2>Détail des alertes</h2></div>
                     <span>{alerts.length} alerte{alerts.length > 1 ? 's' : ''}</span>
                 </div>
-                <DataTable columns={columns} rows={alerts} rowKey={(alert) => String(alert.id)} emptyLabel="Aucune alerte sur la période." />
+                <DataTable
+                    columns={columns}
+                    rows={alerts}
+                    rowKey={(alert) => String(alert.id)}
+                    rowId={(alert) => `alert-${alert.id}`}
+                    rowClassName={(alert) => alert.id === linkedAlertId ? 'alert-row-highlight' : undefined}
+                    emptyLabel="Aucune alerte sur la période."
+                />
             </article>
         </>
     )

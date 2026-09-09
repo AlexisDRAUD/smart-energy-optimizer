@@ -103,25 +103,43 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
 .sidebar-brand { margin-bottom: 14px; }
 
 .fleet-critical-notifications {
-    position: relative;
-    margin: 0 0 18px;
-    border: 1px solid rgba(255, 116, 133, .55);
-    border-radius: 10px;
-    background: rgba(197, 45, 67, .16);
+    position: fixed;
+    z-index: 20;
+    top: 20px;
+    right: 24px;
+    width: min(360px, calc(100vw - var(--sidebar) - 48px));
+    padding: 15px;
+    border: 1px solid #ef9ba7;
+    border-radius: 12px;
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: 0 12px 34px rgb(7 25 43 / 18%);
 }
 
-.fleet-critical-notifications > a {
-    display: grid;
-    gap: 5px;
-    padding: 12px 13px;
-    color: white;
-    text-decoration: none;
+.fleet-critical-notifications__heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding-right: 20px;
+}
+
+.fleet-critical-notifications__heading > div { display: grid; gap: 3px; }
+.fleet-critical-notifications__heading > button {
+    position: absolute;
+    top: 8px;
+    right: 9px;
+    border: 0;
+    color: var(--muted);
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
 }
 
 .fleet-critical-notifications__count {
     position: absolute;
     top: -8px;
-    right: -7px;
+    right: -8px;
     min-width: 23px;
     padding: 4px 6px;
     border-radius: 12px;
@@ -134,14 +152,24 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
 }
 
 .fleet-critical-notifications__title {
-    color: #ff9dab;
+    color: #c52d43;
     font-size: 10px;
     font-weight: 800;
     letter-spacing: .07em;
     text-transform: uppercase;
 }
 
-.fleet-critical-notifications strong {
+.fleet-critical-notifications__list { display: grid; margin-top: 10px; }
+.fleet-critical-notifications__list a {
+    display: grid;
+    gap: 3px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+    color: var(--ink);
+    text-decoration: none;
+}
+.fleet-critical-notifications__list a:hover strong { color: var(--accent); }
+.fleet-critical-notifications__list strong {
     display: -webkit-box;
     overflow: hidden;
     font-size: 12px;
@@ -150,9 +178,19 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
     -webkit-line-clamp: 2;
 }
 
-.fleet-critical-notifications small { color: #c6d4e3; font-size: 9px; }
-.fleet-critical-notifications__link { margin-top: 2px; color: #9fc8ff; font-size: 10px; font-weight: 700; }
-.fleet-critical-notifications:hover { background: rgba(197, 45, 67, .25); }
+.fleet-critical-notifications small { color: var(--muted); font-size: 10px; }
+.fleet-critical-notifications__link { display: inline-block; margin-top: 8px; color: var(--accent); font-size: 11px; font-weight: 700; text-decoration: none; }
+
+.fleet-critical-notifications--collapsed {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    place-items: center;
+    border-radius: 50%;
+    color: #c52d43;
+}
+.fleet-critical-notifications--collapsed:hover { background: #fff4f5; }
 
 .nav-label {
     margin: 0 14px 10px;
@@ -385,6 +423,9 @@ table {
 th { padding: 5px 0 8px; color: var(--muted); font-size: 10px; font-weight: 700; }
 td { padding: 10px 0; }
 td:first-child { font-weight: 700; }
+.alert-row-highlight td { background: #fff0f2; }
+.alert-row-highlight td:first-child { box-shadow: inset 4px 0 #e84657; }
+.theme-dark .alert-row-highlight td { background: #49293a; }
 
 /* ============================================================
    Messages
@@ -701,17 +742,8 @@ td:first-child { font-weight: 700; }
     }
 
     .sidebar-brand, .nav-label, .sidebar-system { display: none; }
-    .fleet-critical-notifications {
-        position: fixed;
-        z-index: 3;
-        top: 10px;
-        right: 15px;
-        max-width: min(280px, calc(100vw - 30px));
-        margin: 0;
-        border-color: #f08c9a;
-        background: #8e2032;
-        box-shadow: 0 8px 24px rgba(21, 48, 77, .2);
-    }
+    .fleet-critical-notifications { top: 10px; right: 15px; width: min(340px, calc(100vw - 30px)); }
+    .fleet-critical-notifications--collapsed { width: 46px; }
     nav { width: 100%; grid-template-columns: repeat(6, 1fr); gap: 2px; }
     .mobile-settings-link { display: block; }
 
