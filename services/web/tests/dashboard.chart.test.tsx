@@ -106,8 +106,8 @@ test('site load card follows the selected site instead of showing the fleet load
         total_capacity_kw: 1900,
         average_load_rate_percent: 73.68,
         by_site: [
-            { site_id: 'LYO-01', consumption_kw: 800, capacity_kw: 1000, load_rate_percent: 80, measured_at: end },
-            { site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end },
+            { site_id: 'LYO-01', consumption_kw: 800, capacity_kw: 1000, load_rate_percent: 80, measured_at: end, prediction: null },
+            { site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end, prediction: null },
         ],
         sites_without_valid_reading: [],
         sites_without_valid_reading_count: 0,
@@ -132,13 +132,39 @@ test('site load card follows the selected site instead of showing the fleet load
     })
 })
 
+test('the multi-site table shows each site H+2 prediction and its model', async () => {
+    jest.mocked(getOverview).mockResolvedValue({
+        site_count: 2,
+        total_consumption_kw: 1400,
+        total_capacity_kw: 1900,
+        average_load_rate_percent: 73.68,
+        by_site: [
+            { site_id: 'LYO-01', consumption_kw: 800, capacity_kw: 1000, load_rate_percent: 80, measured_at: end,
+              prediction: { target_at: '2026-09-02T13:59:00Z', horizon_minutes: 120, predicted_kwh: 815, model_name: 'EnerVision_RF_Predictor_LYO-01', model_version: '3' } },
+            { site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end, prediction: null },
+        ],
+        sites_without_valid_reading: [],
+        sites_without_valid_reading_count: 0,
+        incomplete: false,
+    })
+
+    render(<DashboardPage />)
+
+    const table = (await screen.findByText('Vue multi-sites')).closest('article')!
+    const lyon = within(table).getByText('Lyon').closest('tr')!
+    expect(lyon).toHaveTextContent('815 kWh')
+    expect(within(lyon).getByTitle('EnerVision_RF_Predictor_LYO-01 · version 3')).toBeInTheDocument()
+    const paris = within(table).getByText('Paris').closest('tr')!
+    expect(within(paris).getAllByText('—').length).toBeGreaterThan(0)
+})
+
 test('site load is unavailable when the selected site has no exploitable reading', async () => {
     jest.mocked(getOverview).mockResolvedValue({
         site_count: 2,
         total_consumption_kw: 600,
         total_capacity_kw: 900,
         average_load_rate_percent: 66.67,
-        by_site: [{ site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end }],
+        by_site: [{ site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end, prediction: null }],
         sites_without_valid_reading: ['LYO-01'],
         sites_without_valid_reading_count: 1,
         incomplete: true,

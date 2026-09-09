@@ -149,12 +149,22 @@ export type ApiPrediction = {
     absolute_error: number | null
 }
 
+export type ApiOverviewSitePrediction = {
+    target_at: string
+    horizon_minutes: number
+    predicted_kwh: number
+    model_name: string
+    model_version: string
+}
+
 export type ApiOverviewSite = {
     site_id: string
     consumption_kw: number
     capacity_kw: number
     load_rate_percent: number
     measured_at: string
+    /** Prévision H+2 en cours pour le site ; null tant qu'aucune n'existe. */
+    prediction: ApiOverviewSitePrediction | null
 }
 
 export type ApiOverview = {

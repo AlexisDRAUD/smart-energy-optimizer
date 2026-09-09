@@ -12,8 +12,9 @@ export async function getPredictions(siteId: string, start?: string, limit = 500
     return response.items
 }
 
-export function getModel(signal?: AbortSignal) {
-    return apiRequest<ApiModel>('/api/v1/model', { signal })
+/** Modèle qui sert le site : nom, version et compteurs restreints à ce site. */
+export function getModel(siteId: string, signal?: AbortSignal) {
+    return apiRequest<ApiModel>(`/api/v1/model?site_id=${encodeURIComponent(siteId)}`, { signal })
 }
 
 export function getModelPerformance(siteId: string, start?: string, signal?: AbortSignal) {

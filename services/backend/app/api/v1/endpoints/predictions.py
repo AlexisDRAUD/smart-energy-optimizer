@@ -17,6 +17,7 @@ from app.schemas.contract import (
     PredictionsResponse,
 )
 from app.services.prediction_service import (
+    active_model,
     latest_prediction,
     model_metadata,
     performance_metrics,
@@ -58,6 +59,16 @@ def prediction_history(
 ) -> dict[str, object]:
     _site_or_404(db, site_id)
     statement = select(Prediction).where(Prediction.site_id == site_id)
+    # Le site est servi par un seul modele a la fois. On ne renvoie que les
+    # previsions de ce modele actif : garder les versions precedentes melangerait
+    # deux lignes pour un meme instant apres un reentrainement.
+    model = active_model(db, site_id)
+    if model is not None:
+        model_name, model_version = model
+        statement = statement.where(
+            Prediction.model_name == model_name,
+            Prediction.model_version == model_version,
+        )
     if start is not None:
         statement = statement.where(Prediction.target_at >= parse_utc(start, "start"))
     if end is not None:
@@ -75,8 +86,16 @@ def prediction_history(
 
 
 @model_router.get("", response_model=ModelResponse)
-def get_model(_: CurrentUser, db: DbSession) -> dict[str, object]:
-    return model_metadata(db)
+def get_model(
+    _: CurrentUser,
+    db: DbSession,
+    site_id: str | None = None,
+) -> dict[str, object]:
+    # Sans site_id : dernier modele du parc (retro-compatible). Avec : le modele
+    # qui sert ce site precis, pour la page "Modele H+2" filtree par site.
+    if site_id is not None:
+        _site_or_404(db, site_id)
+    return model_metadata(db, site_id)
 
 
 @model_router.get("/performance", response_model=ModelPerformanceResponse)

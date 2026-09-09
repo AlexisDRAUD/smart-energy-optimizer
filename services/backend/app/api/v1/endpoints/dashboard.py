@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.contract import require_utc_range, utc_iso, utc_now
+from app.db.models.prediction import Prediction
 from app.db.models.quality import DataQualityDaily, EtlRun, SensorStatus
 from app.db.models.reading import Reading
 from app.db.models.site import Site
@@ -46,6 +47,12 @@ def overview(_: CurrentUser, db: DbSession) -> dict[str, object]:
             without_reading.append(site.site_id)
             continue
         consumption = latest.consumption_kwh
+        prediction = db.scalar(
+            select(Prediction)
+            .where(Prediction.site_id == site.site_id)
+            .order_by(Prediction.predicted_at.desc(), Prediction.id.desc())
+            .limit(1)
+        )
         by_site.append(
             {
                 "site_id": site.site_id,
@@ -53,6 +60,15 @@ def overview(_: CurrentUser, db: DbSession) -> dict[str, object]:
                 "capacity_kw": site.capacity_kw,
                 "load_rate_percent": round(consumption / site.capacity_kw * 100, 2),
                 "measured_at": utc_iso(latest.measured_at),
+                "prediction": None
+                if prediction is None
+                else {
+                    "target_at": utc_iso(prediction.target_at),
+                    "horizon_minutes": prediction.horizon_minutes,
+                    "predicted_kwh": prediction.predicted_kwh,
+                    "model_name": prediction.model_name,
+                    "model_version": prediction.model_version,
+                },
             }
         )
     total_consumption = round(sum(site["consumption_kw"] for site in by_site), 3)

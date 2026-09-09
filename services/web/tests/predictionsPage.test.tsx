@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { getLatestPrediction, getModel, getModelPerformance, getPredictions } from '../src/api/predictions'
 import { useFilters } from '../src/hooks/useFilters'
 import { PredictionsPage } from '../src/pages/PredictionsPage'
@@ -32,6 +32,7 @@ test('refreshes model cards, performance, latest prediction and history every mi
 
     expect(await screen.findByText('150 kWh')).toBeInTheDocument()
     expect(getModel).toHaveBeenCalledTimes(1)
+    expect(getModel).toHaveBeenLastCalledWith('SITE001', expect.anything())
     expect(getModelPerformance).toHaveBeenCalledTimes(1)
     expect(getPredictions).toHaveBeenCalledTimes(1)
     expect(getLatestPrediction).toHaveBeenCalledTimes(1)
@@ -45,4 +46,22 @@ test('refreshes model cards, performance, latest prediction and history every mi
     expect(getModelPerformance).toHaveBeenCalledTimes(2)
     expect(getPredictions).toHaveBeenCalledTimes(2)
     expect(getLatestPrediction).toHaveBeenCalledTimes(2)
+})
+
+test('shows the predictions table rows and the active model that produced them', async () => {
+    jest.mocked(getModel).mockResolvedValue({ model_name: 'EnerVision_RF_Predictor_SITE001', model_version: '2', horizon_minutes: 120, last_prediction_at: at, predictions_total: 42, predictions_scored: 10 })
+    jest.mocked(getPredictions).mockResolvedValue([
+        { site_id: 'SITE001', predicted_at: '2026-09-08T14:00:00Z', target_at: '2026-09-08T16:00:00Z', horizon_minutes: 120, predicted_kwh: 312.5, model_version: '2', actual_kwh: 305, absolute_error: 7.5 },
+        { site_id: 'SITE001', predicted_at: '2026-09-08T14:01:00Z', target_at: '2026-09-08T16:01:00Z', horizon_minutes: 120, predicted_kwh: 314, model_version: '2', actual_kwh: null, absolute_error: null },
+    ])
+
+    render(<PredictionsPage />)
+    await act(async () => undefined)
+
+    const table = (await screen.findByText('Prévisions produites')).closest('article')!
+    expect(table).toHaveTextContent('EnerVision_RF_Predictor_SITE001 · version 2')
+    expect(table).toHaveTextContent('2 prévisions')
+    const firstRow = within(table).getByText('312,5 kWh').closest('tr')!
+    expect(firstRow).toHaveTextContent('305 kWh')
+    expect(firstRow).toHaveTextContent('7,5')
 })
