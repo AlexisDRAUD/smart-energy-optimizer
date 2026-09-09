@@ -147,6 +147,69 @@ def test_refresh_scores_due_predictions_without_touching_models(database: None) 
             db.commit()
 
 
+def test_refresh_anchors_target_at_on_last_non_null_reading(database: None) -> None:
+    site_id = "P2-ANCHOR"
+    marker = "p2-anchor"
+    base = datetime(2025, 6, 1, tzinfo=UTC)
+    seen: dict[str, object] = {}
+
+    class Forecaster:
+        def forecast(self, db, site, latest) -> SiteForecast | None:
+            if site.site_id != site_id:
+                return None
+            seen["anchor"] = latest.measured_at
+            return SiteForecast(123.0, f"EnerVision_RF_Predictor_{site_id}", marker)
+
+    try:
+        with SessionLocal() as db:
+            db.add(
+                Site(
+                    site_id=site_id,
+                    site_type="office",
+                    site_name="p2",
+                    location="x",
+                    capacity_kw=10,
+                    status="active",
+                    first_seen_at=base,
+                    last_seen_at=base,
+                )
+            )
+            db.add_all(
+                [
+                    Reading(
+                        site_id=site_id,
+                        measured_at=base + timedelta(minutes=m),
+                        # les 4 derniers releves sont nuls (panne capteur en cours)
+                        consumption_kwh=None if m >= 6 else 100.0 + m,
+                        consumption_kwh_raw=None,
+                        is_imputed=False,
+                        imputation_method=None,
+                        temperature_celsius=None,
+                        humidity_percent=None,
+                        data_quality="good",
+                        null_reasons=[],
+                        ingested_at=base,
+                    )
+                    for m in range(10)
+                ]
+            )
+            db.commit()
+
+            refresh_predictions(db, Forecaster(), base + timedelta(hours=3))
+            row = db.scalar(select(Prediction).where(Prediction.model_version == marker))
+
+        # dernier releve reel = minute 5 ; target_at part de la, pas de la minute 9
+        assert seen["anchor"] == base + timedelta(minutes=5)
+        assert row is not None
+        assert row.target_at == base + timedelta(minutes=5, hours=2)
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Prediction).where(Prediction.model_version == marker))
+            db.execute(delete(Reading).where(Reading.site_id == site_id))
+            db.execute(delete(Site).where(Site.site_id == site_id))
+            db.commit()
+
+
 def test_site_forecaster_predicts_from_seeded_history(database: None, monkeypatch) -> None:
     seen: dict[str, object] = {}
 

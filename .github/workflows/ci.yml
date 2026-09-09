@@ -67,6 +67,9 @@ jobs:
           cache-dependency-path: services/backend/requirements.txt
       - name: Installer les dependances
         run: |
+          # seo-features est installe a part, comme dans le Dockerfile du backend
+          # (le worker model/ l'importe pour servir les modeles MLflow).
+          pip install ../../packages/features
           pip install -r requirements.txt
           pip install pytest-cov
       - name: Tests + couverture

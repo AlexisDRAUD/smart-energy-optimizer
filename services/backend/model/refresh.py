@@ -68,9 +68,18 @@ def refresh_predictions(
         return 0
 
     for site in db.scalars(select(Site).where(Site.status == "active")):
+        # Dernier releve REEL du site : le forecaster ancre ses variables sur ce
+        # meme releve (``forecast._recent_source`` filtre ``consumption_kwh``
+        # non nul). Prendre ici la derniere ligne sans egard a la valeur
+        # decalerait ``target_at`` de plusieurs minutes quand les derniers
+        # releves sont nuls, alors que la prevision partirait d'un instant
+        # anterieur.
         latest = db.scalar(
             select(Reading)
-            .where(Reading.site_id == site.site_id)
+            .where(
+                Reading.site_id == site.site_id,
+                Reading.consumption_kwh.is_not(None),
+            )
             .order_by(Reading.measured_at.desc())
             .limit(1)
         )
