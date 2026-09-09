@@ -444,3 +444,96 @@ jobs:
         run: |
           docker push "${ML_IMAGE}:${GITHUB_SHA}"
           docker push "${ML_IMAGE}:${MOBILE_TAG}"
+
+  # Le deploiement tourne sur le runner auto heberge, donc sur la VM elle meme.
+  # GitHub n entre jamais sur la machine : c est le runner qui sort. Aucune cle
+  # SSH n est confiee au depot, la connexion Ansible est locale.
+  #
+  # Le playbook est joue en deux fois, et l ordre compte au premier passage :
+  # la machine n a pas encore Docker, donc on ne peut pas s authentifier a GHCR
+  # avant que le playbook l ait installe.
+  #
+  # Seulement sur main : dev publie ses images, main les deploie.
+  deploy:
+    name: Deploiement sur la VM
+    runs-on: self-hosted
+    needs: docker-publish
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: read
+
+    env:
+      APP_USER: enervision
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # umask 077 avant l ecriture : le repertoire de travail du runner est sur
+      # la VM, et le fichier porte tous les secrets de production.
+      - name: Ecrire le fichier d environnement
+        env:
+          PROD_ENV: ${{ secrets.PROD_ENV }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${PROD_ENV}" ]]; then
+            echo "::error title=Secret manquant::Le secret de depot PROD_ENV est vide."
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "${PROD_ENV}" > "${RUNNER_TEMP}/prod.env"
+
+      # La machine cible est celle qui execute, d ou la connexion locale.
+      - name: Inventaire local
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '[enervision]\nlocalhost ansible_connection=local\n' \
+            > "${RUNNER_TEMP}/inventory.ini"
+
+      # Premier passage : comptes, Docker, pare feu, arborescence, depot a jour
+      # et fichier d environnement. Le runner est ecarte, il est deja la.
+      - name: Preparer la machine
+        working-directory: infra/ansible
+        shell: bash
+        run: |
+          set -euo pipefail
+          ansible-playbook site.yml \
+            -i "${RUNNER_TEMP}/inventory.ini" \
+            -e env_file_src="${RUNNER_TEMP}/prod.env" \
+            --skip-tags deploy,runner
+
+      # L authentification vaut pour l utilisateur qui la fait. Le compose
+      # tourne sous le compte de service, donc c est lui qui doit se connecter.
+      # Le jeton expire a la fin du job.
+      - name: Login GHCR sous le compte de service
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo -u "${APP_USER}" -H docker login ghcr.io \
+                -u "${{ github.actor }}" --password-stdin
+
+      # Second passage : tirage des images et demarrage de la pile.
+      - name: Deployer
+        working-directory: infra/ansible
+        shell: bash
+        run: |
+          set -euo pipefail
+          ansible-playbook site.yml \
+            -i "${RUNNER_TEMP}/inventory.ini" \
+            -e env_file_src="${RUNNER_TEMP}/prod.env" \
+            --tags deploy
+
+      # Meme si le job echoue. Le runner est persistant : ni les secrets ni les
+      # identifiants du registre n ont a survivre a l execution.
+      - name: Effacer les traces
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${RUNNER_TEMP}/prod.env" "${RUNNER_TEMP}/inventory.ini"
+          sudo -u "${APP_USER}" -H docker logout ghcr.io || true
