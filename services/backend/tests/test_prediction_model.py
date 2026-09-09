@@ -1,0 +1,185 @@
+"""Le worker ne sert que les modeles versionnes de MLflow, sans repli local.
+
+Ces tests ne parlent pas a un vrai serveur MLflow : ils instancient le forecaster
+avec un modele factice ou forcent l'absence de modele, et verifient ce que
+``model.refresh.refresh_predictions`` ecrit alors dans ``predictions``.
+"""
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from app.config import settings
+from app.db.models.prediction import Prediction
+from app.db.models.reading import Reading
+from app.db.models.site import Site
+from app.db.session import SessionLocal
+from model.forecast import SiteForecast, SiteForecaster, _LoadedModel, build_forecaster
+from model.refresh import refresh_predictions
+from sqlalchemy import delete, func, select
+
+
+def _latest_reading(db: SessionLocal, site_id: str) -> Reading:
+    return db.scalar(
+        select(Reading)
+        .where(Reading.site_id == site_id)
+        .order_by(Reading.measured_at.desc())
+        .limit(1)
+    )
+
+
+class _StubForecaster:
+    """Forecaster minimal : rend ce qu'on lui donne, sans MLflow."""
+
+    def __init__(self, result: SiteForecast | None) -> None:
+        self._result = result
+        self.calls: list[str] = []
+
+    def forecast(self, db, site, latest) -> SiteForecast | None:
+        self.calls.append(site.site_id)
+        return self._result
+
+
+def test_build_forecaster_is_none_without_tracking_uri(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "mlflow_tracking_uri", None)
+    assert build_forecaster() is None
+
+    monkeypatch.setattr(settings, "mlflow_tracking_uri", "http://mlflow:5000")
+    assert isinstance(build_forecaster(), SiteForecaster)
+
+
+def test_refresh_stores_forecast_with_its_model_identity(database: None) -> None:
+    marker = "test-mlflow"
+
+    class Forecaster:
+        def forecast(self, db, site, latest) -> SiteForecast:
+            return SiteForecast(
+                predicted_kwh=100.0 + len(site.site_id),
+                model_name=f"EnerVision_RF_Predictor_{site.site_id}",
+                model_version=marker,
+            )
+
+    try:
+        with SessionLocal() as db:
+            created = refresh_predictions(db, Forecaster(), datetime.now(UTC))
+            assert created >= 1
+            rows = list(db.scalars(select(Prediction).where(Prediction.model_version == marker)))
+
+        assert rows
+        for row in rows:
+            assert row.model_name == f"EnerVision_RF_Predictor_{row.site_id}"
+            assert row.predicted_kwh == 100.0 + len(row.site_id)
+            assert row.horizon_minutes == settings.prediction_horizon_minutes
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Prediction).where(Prediction.model_version == marker))
+            db.commit()
+
+
+def test_refresh_without_model_writes_nothing(database: None) -> None:
+    stub = _StubForecaster(None)
+    with SessionLocal() as db:
+        before = db.scalar(select(func.count()).select_from(Prediction))
+        created = refresh_predictions(db, stub, datetime.now(UTC))
+        after = db.scalar(select(func.count()).select_from(Prediction))
+
+    assert created == 0
+    assert before == after
+    assert stub.calls  # le forecaster est bien interroge pour chaque site actif
+
+
+def test_refresh_without_forecaster_writes_nothing(database: None) -> None:
+    with SessionLocal() as db:
+        before = db.scalar(select(func.count()).select_from(Prediction))
+        created = refresh_predictions(db, None, datetime.now(UTC))
+        after = db.scalar(select(func.count()).select_from(Prediction))
+
+    assert created == 0
+    assert before == after
+
+
+def test_refresh_scores_due_predictions_without_touching_models(database: None) -> None:
+    with SessionLocal() as db:
+        due = db.scalar(
+            select(Prediction)
+            .where(Prediction.site_id == "LYO-01", Prediction.actual_kwh.is_(None))
+            .order_by(Prediction.target_at)
+        )
+        assert due is not None
+        due_id, site_id, target_at = due.id, due.site_id, due.target_at
+
+    try:
+        with SessionLocal() as db:
+            db.add(
+                Reading(
+                    site_id=site_id,
+                    measured_at=target_at,
+                    consumption_kwh=210.0,
+                    consumption_kwh_raw=210.0,
+                    is_imputed=False,
+                    imputation_method=None,
+                    temperature_celsius=None,
+                    humidity_percent=None,
+                    data_quality="good",
+                    null_reasons=[],
+                    ingested_at=target_at,
+                )
+            )
+            db.commit()
+
+            refresh_predictions(db, None, target_at + timedelta(minutes=1))
+            db.expire_all()
+            scored = db.get(Prediction, due_id)
+            assert scored.actual_kwh == 210.0
+            assert scored.scored_at is not None
+            # absolute_error est une colonne generee par PostgreSQL des que
+            # actual_kwh est renseigne : |predicted_kwh - actual_kwh|.
+            assert scored.absolute_error == pytest.approx(abs(scored.predicted_kwh - 210.0))
+    finally:
+        # Retirer le releve futur injecte : il decalerait le "dernier releve" de
+        # LYO-01 et ferait echouer les tests de refresh_stored_predictions.
+        with SessionLocal() as db:
+            db.execute(
+                delete(Reading).where(Reading.site_id == site_id, Reading.measured_at == target_at)
+            )
+            row = db.get(Prediction, due_id)
+            row.actual_kwh = None
+            row.scored_at = None
+            db.commit()
+
+
+def test_site_forecaster_predicts_from_seeded_history(database: None, monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeModel:
+        def predict(self, frame):
+            seen["columns"] = set(frame.columns)
+            seen["rows"] = len(frame)
+            return [123.456]
+
+    forecaster = SiteForecaster("http://mlflow:5000")
+    monkeypatch.setattr(
+        forecaster, "_load", lambda site_id: _LoadedModel(version="3", model=FakeModel())
+    )
+
+    with SessionLocal() as db:
+        site = db.get(Site, "LYO-01")
+        result = forecaster.forecast(db, site, _latest_reading(db, "LYO-01"))
+
+    assert result is not None
+    assert result.predicted_kwh == 123.456
+    assert result.model_name == "EnerVision_RF_Predictor_LYO-01"
+    assert result.model_version == "3"
+    # Contrat de service : une seule ligne, les variables de seo_features presentes.
+    assert seen["rows"] == 1
+    assert {"site_id", "site_type", "hour", "lag_1", "rolling_mean_120"} <= seen["columns"]
+
+
+def test_site_forecaster_returns_none_when_model_is_unavailable(
+    database: None, monkeypatch
+) -> None:
+    forecaster = SiteForecaster("http://mlflow:5000")
+    monkeypatch.setattr(forecaster, "_load", lambda site_id: None)
+
+    with SessionLocal() as db:
+        site = db.get(Site, "LYO-01")
+        assert forecaster.forecast(db, site, _latest_reading(db, "LYO-01")) is None
