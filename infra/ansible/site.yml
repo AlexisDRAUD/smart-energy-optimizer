@@ -67,9 +67,11 @@
       when: runner_sudo | bool
       tags: [users]
 
-    # Desactive par defaut : couper l authentification par mot de passe avant
-    # d avoir verifie que sa cle fonctionne, c est se fermer la porte de la VM.
-    # A activer avec -e harden_ssh=true, une fois une connexion par cle etablie.
+    # Desactive par defaut, et ici c est vital : l ecole ne fournit que le
+    # compte root et son mot de passe. PermitRootLogin no fermerait donc la
+    # seule porte de la machine, et sa console Proxmox ne nous est pas ouverte.
+    # A n activer qu apres avoir cree un compte non root joignable par cle et
+    # verifie cette connexion, avec -e harden_ssh=true.
     - name: Durcir SSH, cle uniquement
       ansible.builtin.copy:
         dest: /etc/ssh/sshd_config.d/10-enervision.conf
