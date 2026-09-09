@@ -243,9 +243,14 @@
     # Les images sont tirees explicitement ici. C est ce qui permet de laisser
     # IMAGE_PULL_POLICY a missing : au redemarrage de la VM, les conteneurs
     # repartent sur l image locale, sans avoir a joindre le registre.
+    #
+    # --policy always est indispensable : sans lui, docker compose pull respecte
+    # le pull_policy des services, donc missing, et saute toute image deja
+    # presente localement. Le tag mobile :main ne serait alors jamais rafraichi
+    # et la VM resterait figee sur la premiere image tiree, silencieusement.
     - name: Tirer les images publiees
       ansible.builtin.command:
-        cmd: docker compose pull
+        cmd: docker compose pull --policy always
         chdir: "{{ app_dir }}"
       become: true
       become_user: "{{ app_user }}"
