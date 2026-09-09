@@ -1,6 +1,5 @@
 # Environnement
-.env
-.env.local
+.env*
 *.env
 !.env.example
 
