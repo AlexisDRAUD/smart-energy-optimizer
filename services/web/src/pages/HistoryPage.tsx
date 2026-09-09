@@ -56,6 +56,7 @@ export function HistoryPage() {
 
     const points = useMemo(() => readings?.points ?? [], [readings])
     const dailyTotals = useMemo(() => totalByDay(points), [points])
+    const newestFirst = useMemo(() => [...points].sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at)), [points])
     const total = dailyTotals.reduce((sum, { consumption }) => sum + consumption, 0)
     const highest = Math.max(...dailyTotals.map(({ consumption }) => consumption), 1)
 
@@ -120,7 +121,7 @@ export function HistoryPage() {
                     </div>
                     <span>{points.length} relevés</span>
                 </div>
-                <DataTable columns={columns} rows={points} rowKey={(point) => point.measured_at} emptyLabel="Aucun relevé sur la période." />
+                <DataTable columns={columns} rows={newestFirst} rowKey={(point) => point.measured_at} emptyLabel="Aucun relevé sur la période." />
             </article>
         </>
     )
