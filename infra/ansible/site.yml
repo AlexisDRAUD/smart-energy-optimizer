@@ -84,11 +84,16 @@
       tags: [users]
 
     # ------------------------------------------------------------------
+    # Les trois taches d installation sont conditionnelles : sur une machine ou
+    # Docker est deja fourni, elles n ont rien a faire, et sur un reseau qui ne
+    # joint pas download.docker.com elles echouent. La rotation des journaux et
+    # le demarrage automatique, eux, s appliquent toujours.
     - name: Repertoire des cles apt
       ansible.builtin.file:
         path: /etc/apt/keyrings
         state: directory
         mode: "0755"
+      when: install_docker | bool
       tags: [docker]
 
     - name: Cle du depot Docker
@@ -96,6 +101,7 @@
         url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
         dest: /etc/apt/keyrings/docker.asc
         mode: "0644"
+      when: install_docker | bool
       tags: [docker]
 
     - name: Depot Docker
@@ -107,6 +113,7 @@
           {{ ansible_distribution_release }} stable
         filename: docker
         state: present
+      when: install_docker | bool
       tags: [docker]
 
     - name: Moteur Docker et greffon compose
@@ -119,6 +126,7 @@
           - docker-compose-plugin
         state: present
         update_cache: true
+      when: install_docker | bool
       tags: [docker]
 
     # Plafonner les journaux des conteneurs. Sans cela le disque se remplit.
