@@ -169,15 +169,34 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
 }
 
 .fleet-critical-notifications__list { display: grid; margin-top: 10px; }
+.fleet-critical-notifications__item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--line);
+}
 .fleet-critical-notifications__list a {
     display: grid;
     gap: 3px;
     padding: 9px 0;
-    border-top: 1px solid var(--line);
     color: var(--ink);
     text-decoration: none;
 }
 .fleet-critical-notifications__list a:hover strong { color: var(--accent); }
+.fleet-critical-notifications__item > button {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: var(--muted);
+    background: transparent;
+    font-size: 19px;
+    place-items: center;
+}
+.fleet-critical-notifications__item > button:hover { color: #c52d43; background: #fff0f2; }
 .fleet-critical-notifications__list strong {
     display: -webkit-box;
     overflow: hidden;
@@ -189,6 +208,18 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
 
 .fleet-critical-notifications small { color: var(--muted); font-size: 10px; }
 .fleet-critical-notifications__link { display: inline-block; margin-top: 8px; color: var(--accent); font-size: 11px; font-weight: 700; text-decoration: none; }
+.fleet-critical-notifications__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fleet-critical-notifications__footer > button {
+    margin-top: 8px;
+    padding: 5px 8px;
+    border: 1px solid #ef9ba7;
+    border-radius: 6px;
+    color: #c52d43;
+    background: #fff4f5;
+    font-size: 10px;
+    font-weight: 700;
+}
+.fleet-critical-notifications__error { display: block; margin-top: 8px; color: #c52d43 !important; }
 
 .fleet-critical-notifications--collapsed {
     display: grid;

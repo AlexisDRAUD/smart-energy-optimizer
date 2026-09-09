@@ -182,6 +182,10 @@ class AlertsResponse(ContractModel):
     offset: int
 
 
+class AlertAcknowledgementResponse(ContractModel):
+    acknowledged_count: int = Field(ge=0)
+
+
 class AlertSummaryResponse(ContractModel):
     period: Literal["day", "week", "month"]
     start: ISODateTime = Field(json_schema_extra={"format": "date-time"})

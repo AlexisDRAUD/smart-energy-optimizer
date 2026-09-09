@@ -26,3 +26,11 @@ export async function getAlertsPage({ siteId, start, limit = 100, severity }: Al
 export async function getAlerts(filters: AlertsFilters = {}, signal?: AbortSignal) {
     return (await getAlertsPage(filters, signal)).items
 }
+
+export function acknowledgeAlert(alertId: number) {
+    return apiRequest<ApiAlert>(`/api/v1/alerts/${alertId}/acknowledge`, { method: 'POST' })
+}
+
+export function acknowledgeAllCriticalAlerts() {
+    return apiRequest<{ acknowledged_count: number }>('/api/v1/alerts/acknowledge-all-critical', { method: 'POST' })
+}
