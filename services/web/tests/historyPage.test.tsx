@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { getReadings } from '../src/api/readings'
 import { useFilters } from '../src/hooks/useFilters'
 import { HistoryPage } from '../src/pages/HistoryPage'
@@ -19,17 +19,26 @@ const readings: ApiReadings = {
     total: 3,
 }
 
-beforeEach(() => {
-    jest.mocked(useFilters).mockReturnValue({
-        sites: [{ site_id: 'LYO-01', site_name: 'Lyon', site_type: 'office', location: 'Lyon', capacity_kw: 1000, status: 'active', last_seen_at: '2026-09-03T12:00:00Z' }],
-        siteId: 'LYO-01',
+const sites = [
+    { site_id: 'LYO-01', site_name: 'Lyon', site_type: 'office', location: 'Lyon', capacity_kw: 1000, status: 'active' as const, last_seen_at: '2026-09-03T12:00:00Z' },
+    { site_id: 'PAR-01', site_name: 'Paris', site_type: 'office', location: 'Paris', capacity_kw: 900, status: 'active' as const, last_seen_at: '2026-09-03T12:00:00Z' },
+]
+
+function filters(siteId = 'LYO-01'): ReturnType<typeof useFilters> {
+    return {
+        sites,
+        siteId,
         setSiteId: jest.fn(),
         period: 'day',
         setPeriod: jest.fn(),
         error: null,
         isLoading: false,
         reload: jest.fn(),
-    })
+    }
+}
+
+beforeEach(() => {
+    jest.mocked(useFilters).mockReturnValue(filters())
     jest.mocked(getReadings).mockResolvedValue(readings)
 })
 
@@ -45,4 +54,34 @@ test('shows detail readings from newest to oldest without changing the source or
         '2026-09-03T12:00:00Z',
         '2026-09-02T12:00:00Z',
     ])
+})
+
+test('history metrics follow the selected site and ignore an obsolete response', async () => {
+    let resolveLyon!: (value: ApiReadings) => void
+    jest.mocked(getReadings).mockImplementationOnce(() => new Promise((resolve) => { resolveLyon = resolve }))
+    const { rerender } = render(<HistoryPage />)
+    await waitFor(() => expect(getReadings).toHaveBeenCalledTimes(1))
+
+    const parisReadings: ApiReadings = {
+        ...readings,
+        site_id: 'PAR-01',
+        completeness: { expected_points: 10, received_points: 7, imputed_points: 2, missing_points: 3, percent: 70 },
+        total: 7,
+    }
+    jest.mocked(useFilters).mockReturnValue(filters('PAR-01'))
+    jest.mocked(getReadings).mockResolvedValue(parisReadings)
+    rerender(<HistoryPage />)
+
+    const receivedCard = (await screen.findByText('Relevés reçus')).closest('article')!
+    await waitFor(() => expect(receivedCard).toHaveTextContent('7'))
+    expect(receivedCard).toHaveTextContent('Sur 10 attendus')
+    expect(screen.getByText('Complétude').closest('article')).toHaveTextContent('70 %')
+    expect(screen.getByText('Relevés imputés').closest('article')).toHaveTextContent('2')
+    const latestCall = jest.mocked(getReadings).mock.calls[jest.mocked(getReadings).mock.calls.length - 1]
+    expect(latestCall[0]).toEqual(expect.objectContaining({ siteId: 'PAR-01' }))
+    expect(latestCall[1]).toBeInstanceOf(AbortSignal)
+
+    resolveLyon({ ...readings, completeness: { expected_points: 99, received_points: 99, imputed_points: 99, missing_points: 0, percent: 100 } })
+    await waitFor(() => expect(receivedCard).toHaveTextContent('7'))
+    expect(receivedCard).not.toHaveTextContent('99')
 })
