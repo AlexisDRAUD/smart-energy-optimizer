@@ -77,6 +77,9 @@ def test_alerts_are_paginated_and_operator_acknowledges(
     assert acknowledged.status_code == 200
     assert acknowledged.json()["status"] == "acknowledged"
     assert acknowledged.json()["acknowledged_at"].endswith("Z")
+    all_statuses = client.get("/api/v1/alerts?status=all", headers=viewer_headers)
+    assert all_statuses.status_code == 200
+    assert any(item["id"] == alert["id"] for item in all_statuses.json()["items"])
 
 
 def test_alert_summary_counts_by_severity(client: TestClient, auth_headers: dict[str, str]) -> None:

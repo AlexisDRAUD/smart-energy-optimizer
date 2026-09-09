@@ -36,6 +36,7 @@ test('shows materialized source alerts with their origin', async () => {
     expect(screen.getByText('Source collectée')).toBeInTheDocument()
     expect(screen.getByText('Règle interne — non attribuée au ML')).toBeInTheDocument()
     expect(screen.queryByText(/raw|brut/i)).not.toBeInTheDocument()
+    expect(getAlerts).toHaveBeenCalledWith(expect.objectContaining({ status: 'all' }), expect.any(AbortSignal))
 })
 
 test('a notification link selects and highlights the related alert', async () => {

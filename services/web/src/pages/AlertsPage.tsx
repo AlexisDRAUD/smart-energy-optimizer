@@ -62,7 +62,7 @@ export function AlertsPage() {
     // ses chiffres porteraient sur tout le parc.
     const fetchAlerts = useCallback(async (signal: AbortSignal) => {
         if (siteId === null) throw new Error('Aucun site sélectionné.')
-        return getAlerts({ siteId, start: periodStart(period) }, signal)
+        return getAlerts({ siteId, start: periodStart(period), status: 'all' }, signal)
     }, [period, siteId])
     const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
         enabled: siteId !== null,
@@ -103,7 +103,7 @@ export function AlertsPage() {
             </p>
 
             <section className="card-grid">
-                <MetricCard label="Alertes ouvertes" value={alerts.length} dot="blue" />
+                <MetricCard label="Alertes sur la période" value={alerts.length} dot="blue" />
                 <MetricCard label="Critiques" value={countBySeverity(alerts, 'critical')} dot="red" />
                 <MetricCard label="Hautes" value={countBySeverity(alerts, 'high')} dot="orange" />
                 <MetricCard label="Moyennes et faibles" value={countBySeverity(alerts, 'medium', 'low')} dot="teal" />
@@ -111,7 +111,7 @@ export function AlertsPage() {
 
             <article className="chart-card">
                 <div className="card-heading">
-                    <div><h2>Alertes ouvertes par jour</h2></div>
+                    <div><h2>Alertes par jour</h2></div>
                     <span className="chart-unit">Alertes</span>
                 </div>
                 {chartData.length

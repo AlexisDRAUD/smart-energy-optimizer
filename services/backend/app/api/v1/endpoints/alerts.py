@@ -21,7 +21,7 @@ from app.schemas.contract import (
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 Severity = Literal["low", "medium", "high", "critical"]
-AlertStatus = Literal["open", "acknowledged", "closed"]
+AlertStatusFilter = Literal["open", "acknowledged", "closed", "all"]
 AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor"]
 Period = Literal["day", "week", "month"]
 
@@ -32,7 +32,7 @@ def list_alerts(
     db: DbSession,
     site_id: str | None = None,
     severity: Severity | None = None,
-    status_filter: Annotated[AlertStatus | None, Query(alias="status")] = "open",
+    status_filter: Annotated[AlertStatusFilter, Query(alias="status")] = "open",
     type: AlertType | None = None,
     start: str | None = None,
     end: str | None = None,
@@ -53,7 +53,7 @@ def list_alerts(
         statement = statement.where(Alert.site_id == site_id)
     if severity is not None:
         statement = statement.where(Alert.severity == severity)
-    if status_filter is not None:
+    if status_filter != "all":
         statement = statement.where(Alert.status == status_filter)
     if type is not None:
         statement = statement.where(Alert.type == type)

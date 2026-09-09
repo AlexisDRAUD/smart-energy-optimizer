@@ -6,6 +6,7 @@ export type AlertsFilters = {
     start?: string
     limit?: number
     severity?: 'low' | 'medium' | 'high' | 'critical'
+    status?: 'open' | 'acknowledged' | 'closed' | 'all'
 }
 
 export type AlertsPage = {
@@ -15,11 +16,12 @@ export type AlertsPage = {
     offset: number
 }
 
-export async function getAlertsPage({ siteId, start, limit = 100, severity }: AlertsFilters = {}, signal?: AbortSignal) {
+export async function getAlertsPage({ siteId, start, limit = 100, severity, status }: AlertsFilters = {}, signal?: AbortSignal) {
     const params = new URLSearchParams({ limit: String(limit) })
     if (siteId) params.set('site_id', siteId)
     if (start) params.set('start', start)
     if (severity) params.set('severity', severity)
+    if (status) params.set('status', status)
     return apiRequest<AlertsPage>(`/api/v1/alerts?${params}`, { signal })
 }
 
