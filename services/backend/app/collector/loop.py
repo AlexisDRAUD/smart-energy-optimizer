@@ -43,10 +43,11 @@ class Collector:
             time.sleep(self.interval)
 
     def run_once(self) -> None:
-        """Un passage : les deux referentiels, puis la mesure courante de chaque site."""
+        """Un passage : referentiels, alertes, puis mesure courante de chaque site."""
         sites = self._get("/api/v1/sites")
         self.storage.store_snapshot("api_sites", json.dumps(sites))
         self._store_sensor_snapshot()
+        self._store_alert_snapshot()
 
         payloads = []
         for site in sites:
@@ -77,6 +78,15 @@ class Collector:
             LOGGER.exception("Etat des capteurs indisponible pour ce passage")
             return
         self.storage.store_snapshot("api_sensors", json.dumps(sensors))
+
+    def _store_alert_snapshot(self) -> None:
+        """Capture les alertes source sans rendre la collecte des mesures fragile."""
+        try:
+            alerts = self._get("/api/v1/alerts")
+        except Exception:
+            LOGGER.exception("Alertes source indisponibles pour ce passage")
+            return
+        self.storage.store_snapshot("api_alerts", json.dumps(alerts))
 
     def _get(self, path: str):
         response = self.client.get(f"{self.api_url}{path}")

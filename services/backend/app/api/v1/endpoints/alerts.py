@@ -4,19 +4,24 @@ from datetime import timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.api.deps import CurrentUser, DbSession, OperatorUser
 from app.api.v1.serializers import alert_response
 from app.core.contract import as_utc, require_utc_range, utc_iso, utc_now
 from app.db.models.alert import Alert
 from app.db.models.site import Site
-from app.schemas.contract import AlertResponse, AlertsResponse, AlertSummaryResponse
+from app.schemas.contract import (
+    AlertAcknowledgementResponse,
+    AlertResponse,
+    AlertsResponse,
+    AlertSummaryResponse,
+)
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 Severity = Literal["low", "medium", "high", "critical"]
-AlertStatus = Literal["open", "acknowledged", "closed"]
+AlertStatusFilter = Literal["open", "acknowledged", "closed", "all"]
 AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor"]
 Period = Literal["day", "week", "month"]
 
@@ -27,7 +32,7 @@ def list_alerts(
     db: DbSession,
     site_id: str | None = None,
     severity: Severity | None = None,
-    status_filter: Annotated[AlertStatus | None, Query(alias="status")] = "open",
+    status_filter: Annotated[AlertStatusFilter, Query(alias="status")] = "open",
     type: AlertType | None = None,
     start: str | None = None,
     end: str | None = None,
@@ -48,7 +53,7 @@ def list_alerts(
         statement = statement.where(Alert.site_id == site_id)
     if severity is not None:
         statement = statement.where(Alert.severity == severity)
-    if status_filter is not None:
+    if status_filter != "all":
         statement = statement.where(Alert.status == status_filter)
     if type is not None:
         statement = statement.where(Alert.type == type)
@@ -100,6 +105,26 @@ def alert_summary(
         "by_severity": counts,
         "by_day": by_day,
     }
+
+
+@router.post("/acknowledge-all-critical", response_model=AlertAcknowledgementResponse)
+def acknowledge_all_critical_alerts(
+    user: OperatorUser,
+    db: DbSession,
+) -> dict[str, int]:
+    """Acquitte les critiques ouvertes sans effacer leur historique."""
+    acknowledged_at = utc_now()
+    result = db.execute(
+        update(Alert)
+        .where(Alert.severity == "critical", Alert.status == "open")
+        .values(
+            status="acknowledged",
+            acknowledged_at=acknowledged_at,
+            acknowledged_by=user.id,
+        )
+    )
+    db.commit()
+    return {"acknowledged_count": result.rowcount}
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)

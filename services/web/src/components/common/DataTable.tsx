@@ -9,11 +9,13 @@ type DataTableProps<Row> = {
     columns: Column<Row>[]
     rows: Row[]
     rowKey: (row: Row) => string
+    rowId?: (row: Row) => string
+    rowClassName?: (row: Row) => string | undefined
     emptyLabel: string
 }
 
 /** Tableau simple. Il défile horizontalement quand la place manque. */
-export function DataTable<Row>({ columns, rows, rowKey, emptyLabel }: Readonly<DataTableProps<Row>>) {
+export function DataTable<Row>({ columns, rows, rowKey, rowId, rowClassName, emptyLabel }: Readonly<DataTableProps<Row>>) {
     if (!rows.length) {
         return <p className="empty-state">{emptyLabel}</p>
     }
@@ -28,7 +30,7 @@ export function DataTable<Row>({ columns, rows, rowKey, emptyLabel }: Readonly<D
                 </thead>
                 <tbody>
                     {rows.map((row) => (
-                        <tr key={rowKey(row)}>
+                        <tr key={rowKey(row)} id={rowId?.(row)} className={rowClassName?.(row)}>
                             {columns.map((column) => <td key={column.header}>{column.cell(row)}</td>)}
                         </tr>
                     ))}
