@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import './App.css'
+import { FleetCriticalNotifications } from './components/alerts/FleetCriticalNotifications'
 import { Icon } from './components/common/Icon'
 import { SettingsModal, type Theme } from './components/settings/SettingsModal'
 import { useAuth } from './context/AuthProvider'
@@ -77,6 +78,8 @@ function App() {
                             <span>EnerVision</span>
                         </div>
                     </div>
+
+                    <FleetCriticalNotifications />
 
                     <div className="nav-label">Navigation</div>
                     <nav aria-label="Navigation principale">
