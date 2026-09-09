@@ -14,7 +14,7 @@ Projet EnerVision, promotion EADL 2025, groupe 1.
 ## Demarrer
 
 ```bash
-cp .env.example .env
+cp .env.example.example .env.example
 # remplir POSTGRES_PASSWORD et JWT_SECRET_KEY, verifier SOURCE_API_BASE_URL
 docker compose up
 ```

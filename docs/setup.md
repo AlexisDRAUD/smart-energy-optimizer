@@ -36,7 +36,7 @@ C'est la même image que l'API, avec une commande différente.
 git clone <le depot>
 cd smart-energy-optimizer
 
-cp .env.example .env
+cp .env.example.example .env.example
 ```
 
 Ouvrir `.env` et remplir les deux secrets, `POSTGRES_PASSWORD` et `JWT_SECRET_KEY` :

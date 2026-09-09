@@ -147,7 +147,7 @@ La documentation interactive est disponible sur `http://localhost:8080/docs`.
 
 ```bash
 # Depuis la racine du depot, creer la configuration PostgreSQL et definir les secrets
-cp .env.example .env
+cp .env.example.example .env.example
 
 # Démarrer PostgreSQL et l'API
 docker compose up --build

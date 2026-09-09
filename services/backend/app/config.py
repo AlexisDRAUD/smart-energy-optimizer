@@ -9,12 +9,12 @@ class Settings(BaseSettings):
     """
 
     # Un seul fichier d environnement pour tout le depot, celui de la racine.
-    # ".env" couvre la commande lancee depuis la racine, "../../.env" celle
+    # ".env.example" couvre la commande lancee depuis la racine, "../../.env.example" celle
     # lancee depuis services/backend (alembic, pytest). Dans le conteneur
     # aucun des deux n existe : les variables viennent du bloc environment:
     # de docker-compose.yml.
     model_config = SettingsConfigDict(
-        env_file=(".env", "../../.env"),
+        env_file=(".env.example", "../../.env.example"),
         extra="ignore",
     )
 
