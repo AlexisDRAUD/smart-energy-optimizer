@@ -36,3 +36,6 @@ models/*.joblib
 .idea/
 .vscode/
 *.log
+
+# Ansible
+infra/ansible/inventory.ini

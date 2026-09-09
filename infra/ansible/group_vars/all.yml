@@ -1,0 +1,70 @@
+---
+# Variables du deploiement. Aucun secret ici : les secrets vivent dans le
+# fichier d environnement designe par env_file_src, qui n est pas versionne.
+
+# Ou vit l application sur la VM, et sous quelle identite.
+app_dir: /opt/enervision
+app_user: enervision
+app_group: enervision
+
+# Le depot n est clone que pour son docker-compose.yml et ses contextes de
+# construction. Le code applicatif, lui, vient des images publiees.
+repo_url: https://github.com/AlexisDRAUD/smart-energy-optimizer.git
+repo_version: main
+
+# Fichier d environnement a deposer sur la VM. Par defaut prod.env, a la racine
+# du depot sur le poste qui applique le playbook, ignore par git.
+env_file_src: "{{ playbook_dir }}/../../prod.env"
+
+# Port du dashboard, a garder aligne sur WEB_PORT du fichier d environnement.
+web_port: 80
+
+# Journaux Docker. Sans plafond, le disque de la VM se remplit et c est la
+# panne la plus banale d une machine qu on administre soi meme.
+docker_log_max_size: "10m"
+docker_log_max_file: "3"
+
+# Sauvegarde de la base.
+backup_dir: /var/backups/enervision
+backup_keep_days: 7
+backup_hour: "3"
+backup_minute: "30"
+
+# Interrupteurs. Les deux derniers sont a false par defaut parce qu ils peuvent
+# couper l acces a la machine ou casser l application : a activer sciemment.
+configure_firewall: true
+harden_ssh: false
+
+# Le port 443 reste ferme tant qu aucun frontal TLS n ecoute derriere. A passer
+# a true le jour ou le TLS est en place, puis rejouer --tags firewall.
+enable_https: false
+create_app_role: false
+
+# Role applicatif, utilise seulement si create_app_role vaut true. Le mot de
+# passe se passe en ligne de commande, il n a rien a faire dans un fichier
+# versionne : -e app_role_password=...
+#
+# Le nom du compte PostgreSQL et celui de la base ne sont volontairement pas
+# repris ici. Ils vivent dans le fichier d environnement, que le compose donne
+# deja au conteneur : les redeclarer creerait une seconde source de verite qui
+# finirait par diverger.
+app_role_password: ""
+
+# Le compte sous lequel tourne le runner GitHub, donc celui qui rejoue ce
+# playbook depuis la VM. Ansible y a besoin de sudo sans mot de passe :
+# personne n est devant le clavier pour taper quoi que ce soit. C est le
+# compromis assume de ce montage, ce compte est de fait administrateur de la
+# machine. Mettre runner_sudo a false si le deploiement reste manuel.
+#
+# La toute premiere ligne de sudo est posee a la main pendant l amorcage : une
+# machine ne peut pas s accorder elle meme les droits dont elle a besoin pour
+# se les accorder. Elle est declaree ici pour que l etat de la machine reste
+# entierement decrit par le code.
+deploy_user: enervision
+runner_sudo: true
+
+# Runner GitHub auto heberge. Le jeton d enregistrement est court et se recupere
+# dans les reglages du depot ; il se passe en ligne de commande, jamais ici.
+runner_version: "2.330.0"
+runner_labels: "self-hosted,linux,x64,enervision"
+runner_token: ""
