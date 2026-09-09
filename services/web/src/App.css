@@ -127,14 +127,22 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
 .fleet-critical-notifications__heading > div { display: grid; gap: 3px; }
 .fleet-critical-notifications__heading > button {
     position: absolute;
+    z-index: 1;
     top: 8px;
     right: 9px;
+    display: grid;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     border: 0;
+    border-radius: 50%;
     color: var(--muted);
     background: transparent;
     font-size: 22px;
     line-height: 1;
+    place-items: center;
 }
+.fleet-critical-notifications__heading > button:hover { color: #c52d43; background: #fff0f2; }
 
 .fleet-critical-notifications__count {
     position: absolute;
@@ -148,6 +156,7 @@ h2 { font-size: 18px; letter-spacing: -.2px; }
     font-size: 10px;
     font-weight: 800;
     line-height: 1.1;
+    pointer-events: none;
     text-align: center;
 }
 
