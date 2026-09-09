@@ -73,6 +73,13 @@ export function DashboardPage() {
         { header: 'Consommation', cell: (row) => formatPower(row.consumption_kw) },
         { header: 'Puissance souscrite', cell: (row) => formatPower(row.capacity_kw) },
         { header: 'Taux de charge', cell: (row) => formatPercent(row.load_rate_percent) },
+        {
+            header: 'Prédiction H+2',
+            cell: (row) => row.prediction === null
+                ? '—'
+                : <span title={`${row.prediction.model_name} · version ${row.prediction.model_version}`}>{formatEnergy(row.prediction.predicted_kwh)}</span>,
+        },
+        { header: 'Prévue pour', cell: (row) => row.prediction === null ? '—' : formatDateTime(row.prediction.target_at) },
         { header: 'Dernière donnée', cell: (row) => formatDateTime(row.measured_at) },
     ]
 

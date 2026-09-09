@@ -21,10 +21,10 @@ type ModelData = {
 const columns: Column<ApiPrediction>[] = [
     { header: 'Prévue pour', cell: (row) => formatDateTime(row.target_at) },
     { header: 'Calculée le', cell: (row) => formatDateTime(row.predicted_at) },
+    { header: 'Horizon', cell: (row) => `${row.horizon_minutes} min` },
     { header: 'Prévision', cell: (row) => formatEnergy(row.predicted_kwh) },
     { header: 'Réalisé', cell: (row) => formatEnergy(row.actual_kwh) },
     { header: 'Erreur absolue', cell: (row) => formatNumber(row.absolute_error) },
-    { header: 'Modèle', cell: (row) => row.model_version },
 ]
 
 /** Une ligne du tableau de comparaison entre le modèle et ses références. */
@@ -49,7 +49,7 @@ export function PredictionsPage() {
             throw cause
         })
         const [model, performance, history, prediction] = await Promise.all([
-            getModel(signal),
+            getModel(siteId, signal),
             getModelPerformance(siteId, start, signal),
             getPredictions(siteId, start, 500, signal),
             latestRequest,
@@ -141,7 +141,10 @@ export function PredictionsPage() {
 
                     <article className="table-card">
                         <div className="card-heading">
-                            <div><h2>Prévisions produites</h2></div>
+                            <div>
+                                <h2>Prévisions produites</h2>
+                                <p>{data.model.model_name ?? 'modèle inconnu'}{data.model.model_version ? ` · version ${data.model.model_version}` : ''} · lignes de la table des prévisions pour ce site</p>
+                            </div>
                             <span>{data.history.length} prévision{data.history.length > 1 ? 's' : ''}</span>
                         </div>
                         <DataTable

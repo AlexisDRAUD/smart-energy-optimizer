@@ -39,7 +39,10 @@ x-backend: &backend
     # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
     COOKIE_SECURE: ${COOKIE_SECURE:-false}
     SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:-http://127.0.0.1:8000}
-    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+    # Fixe ici, comme DATABASE_URL : dans le reseau compose le registre repond a
+    # l hote "mlflow". La valeur MLFLOW_TRACKING_URI du .env ne sert qu au backend
+    # lance hors docker (http://127.0.0.1:5000, port publie sur localhost).
+    MLFLOW_TRACKING_URI: http://mlflow:5000
     COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-60}
     BACKFILL_DAYS: ${BACKFILL_DAYS:-7}
     ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
@@ -147,6 +150,9 @@ services:
   # Worker de prevision : rejoue le modele a intervalle regulier (60 s par defaut)
   # et ecrit une prevision a horizon 120 minutes par site. Meme image que l API,
   # commande differente. La cadence vient de sa boucle interne (decision 26).
+  # Il consomme les modeles versionnes du registre MLflow via MLFLOW_TRACKING_URI
+  # (herite du bloc x-backend). Aucun couplage de demarrage : registre injoignable
+  # ou modele d'un site absent => repli moyenne glissante pour ce site.
   model:
     <<: *backend
     command: ["python", "-m", "model.predict"]

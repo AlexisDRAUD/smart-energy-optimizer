@@ -31,6 +31,10 @@ else:
     )
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-with-at-least-32-characters"
 os.environ["SEED_USER_PASSWORD"] = "EnerVisionDemo2026!"
+# Pas de MLflow pendant les tests : le worker de prevision doit rester sur son
+# repli moyenne glissante et ne contacter aucun serveur. Les tests du modele
+# MLflow (tests/test_prediction_model.py) instancient le forecaster eux-memes.
+os.environ["MLFLOW_TRACKING_URI"] = ""
 
 
 def _admin_database_url() -> str:
