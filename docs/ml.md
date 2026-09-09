@@ -1,9 +1,10 @@
 # Modele
 
-> **Hors de ce lot.** `services/ml/` n'est pas termine et n'apparait pas dans le
-> `docker-compose.yml`. Ce document decrit la cible visee, pas un composant qui tourne. Les
-> tables `predictions` sont aujourd'hui remplies par une boucle de l'API avec un modele local
-> de moyenne mobile, pas par un modele entraine.
+> **Hors de ce lot.** Ce document decrit la cible visee. `services/ml/` entraine et enregistre
+> des modeles dans MLflow (conteneurs `mlflow`, `minio`), mais la table `predictions` est
+> aujourd'hui remplie par une boucle de l'API avec un modele local de moyenne mobile, pas par
+> un modele entraine. La surveillance du modele en production est un lot a part :
+> `ml-supervision.md`.
 
 ## Cible
 
@@ -68,3 +69,7 @@ predictions notees par jour et par site. L'ecart est stocke et affiche.
 La cadence d'emission est la minute et non le quart d'heure. Ce n'est pas pour la fraicheur,
 une prediction a trente minutes recalculee chaque minute ne bouge presque pas. C'est pour la
 surveillance : une erreur moyenne calculee sur 1440 points est plus stable que sur 96.
+
+C'est cet ecart que lit le conteneur `supervisor` pour decider des reentrainements : MAE par
+site sur 7 jours, comparee au seuil du modele lu dans MLflow. Regles, seuils et decisions dans
+`ml-supervision.md`.

@@ -95,6 +95,27 @@ La stratégie est décrite dans `adr/ADR-2026-09-04-strategie-imputation-consomm
 `COOKIE_SECURE=true` sans HTTPS empêche le navigateur d'envoyer le cookie de session, et la
 connexion échoue silencieusement au premier renouvellement de jeton.
 
+## Superviseur
+
+Lues par `app/supervisor/config.py`, sous le préfixe `SUPERVISOR_`, par le seul conteneur
+`supervisor`. Les valeurs par défaut sont les décisions du lot (`ml-supervision.md`), pas des
+réglages techniques : ce sont des valeurs de départ, à calibrer sur des données réelles.
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `SUPERVISOR_INTERVAL_SECONDS` | `300` | temps de sommeil entre deux tours |
+| `SUPERVISOR_DECISION_WINDOW_HOURS` | `168` | fenêtre de la MAE qui juge la dérive (7 jours) |
+| `SUPERVISOR_ALERT_WINDOW_HOURS` | `24` | fenêtre de la MAE qui prévient, sans décider |
+| `SUPERVISOR_GRACE_HOURS` | `24` | données exigées depuis la première notation avant tout verdict |
+| `SUPERVISOR_LOCK_HOURS` | `24` | écart minimal entre deux lancements pour un même site |
+| `SUPERVISOR_MAX_MODEL_AGE_DAYS` | `7` | âge au-delà duquel un modèle est réentraîné même sans dérive |
+| `SUPERVISOR_MAE_TOLERANCE` | `1.5` | seuil de repli = MAE holdout × tolérance, quand le run MLflow n'a pas de `drift_threshold_mae` |
+
+Toute valeur nulle ou négative fait refuser le démarrage. Le superviseur prend en plus à
+`app/config.py` ce qu'il partage avec le reste du backend : `DATABASE_URL`,
+`MLFLOW_TRACKING_URI` et le préfixe des modèles. Sans `MLFLOW_TRACKING_URI`, aucun site n'a de
+seuil et la supervision est inactive partout, avec un avertissement au démarrage.
+
 ## Front
 
 | Variable | Défaut | Rôle |
