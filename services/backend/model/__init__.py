@@ -11,11 +11,10 @@ passage, pour chaque site ``active`` :
 3. ecriture d'une prevision (ignoree si une ligne identique existe deja) ;
 4. rapprochement des previsions arrivees a echeance avec la mesure reelle.
 
-Le calcul est celui de ``app.services.prediction_service``, partage avec l'API.
-Celle-ci lance deja la meme boucle en interne toutes les
-``prediction_refresh_interval_seconds`` (60 s) ; ce worker sort cette charge du
-conteneur API sur la meme cadence par defaut. Les deux ecritures sont idempotentes
-(contrainte d'unicite ``site_id, target_at, model_version, horizon_minutes``).
+Le calcul est celui de ``app.services.prediction_service``, partage avec l'API
+(qui l'utilise en lecture seule). Ce worker est le seul processus qui ecrit dans
+la table ``predictions`` : la contrainte d'unicite ``site_id, target_at,
+model_version, horizon_minutes`` protege quand meme les doublons.
 
 Tourne dans son propre conteneur, a partir de l'image du backend, avec la
 commande ``python -m model.predict``. La cadence vient de la boucle du processus,
