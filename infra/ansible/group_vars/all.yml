@@ -60,7 +60,7 @@ app_role_password: ""
 # machine ne peut pas s accorder elle meme les droits dont elle a besoin pour
 # se les accorder. Elle est declaree ici pour que l etat de la machine reste
 # entierement decrit par le code.
-deploy_user: enervision
+deploy_user: deploy
 runner_sudo: true
 
 # Runner GitHub auto heberge. Le jeton d enregistrement est court et se recupere
