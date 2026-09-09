@@ -11,6 +11,7 @@ from app.core.contract import as_utc, utc_iso
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
 from app.db.models.site import Site
+from app.services.prediction_alerts import evaluate_prediction_rise
 
 
 def model_metadata(db: Session) -> dict[str, object]:
@@ -126,6 +127,18 @@ def refresh_stored_predictions(db: Session, now: datetime | None = None) -> int:
             )
         )
         created += 1
+
+        # La prevision qui vient d etre ecrite est comparee au dernier releve
+        # reel du site : une montee trop rapide devient une alerte ouverte.
+        if latest.consumption_kwh is not None:
+            evaluate_prediction_rise(
+                db,
+                site_id=site.site_id,
+                baseline_kwh=latest.consumption_kwh,
+                predicted_kwh=predicted_kwh,
+                horizon_minutes=horizon,
+                detected_at=predicted_at,
+            )
     db.commit()
     return created
 
