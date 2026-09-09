@@ -50,5 +50,5 @@ def require_roles(*roles: str):
     return dependency
 
 
-OperatorUser = Annotated[User, Depends(require_roles("operator"))]
+OperatorUser = Annotated[User, Depends(require_roles("operator", "admin"))]
 AdminUser = Annotated[User, Depends(require_roles("admin"))]

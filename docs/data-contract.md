@@ -13,11 +13,11 @@ source (API du formateur)
    |
    v  collector          ecrit  raw_readings, raw_snapshots
    |
-   v  etl                ecrit  sites, readings, sensor_status, etl_runs, data_quality_daily
+   v  etl                ecrit  sites, readings, sensor_status, alerts, etl_runs, data_quality_daily
    |
    +--> ml               ne lit que readings et sites, n'ecrit rien en base
    |
-   v  api                ecrit  users, predictions, alerts
+   v  api                ecrit  users, predictions, alertes internes
    |
    v  web                n'ecrit rien, n'accede pas a la base
 ```
@@ -26,6 +26,28 @@ Une seule base PostgreSQL. Deux couches, brute et transformée. Le schema n'exis
 `services/backend/alembic/versions/`.
 
 ## Conventions générales
+
+### Précision pour le graphique de comparaison
+
+`consumption_kwh` et `predicted_kwh` sont affichés sans transformation, dans l'unité
+**déclarée par la source : kWh**. La cadence attendue des observations est une minute.
+Cette cadence ne démontre pas à elle seule la durée physique d'intégration d'une
+valeur. La source fournit actuellement la même valeur pour `consumption_kw` et
+`consumption_kwh` (voir plus bas) : l'unité physique et la durée d'intégration restent
+à confirmer avec le propriétaire de la source. Aucune décision de conversion n'est
+prise ici, notamment aucune division/multiplication par 60 et aucun renommage en kW.
+
+La route de graphique expose `unit="kWh"`, `unit_basis="source_declared"`,
+`cadence_seconds=60` et `measurement_interval_seconds=null` pour rendre cette limite
+explicite. H+2 désigne l'horizon de la cible, **pas une énergie cumulée pendant deux
+heures**. Réel et prédit sont comparés sur la même valeur native au timestamp cible.
+La carte « Dernier écart évalué » est une comparaison historique d'affichage ; sa
+lecture ne réécrit ni `actual_kwh`, ni `absolute_error`, ni `scored_at` en base.
+
+Cette précision ne modifie ni les données stockées, ni l'ETL, ni l'imputation, ni
+les modèles, ni les agrégations existantes. Les taux de charge de `/overview`
+conservent leur fonctionnement existant ; leur ambiguïté kWh/kW n'est pas résolue
+par cette correction du graphique.
 
 - Horodatages en **temps universel**, type `timestamptz`. Conversion en heure locale a
   l'affichage uniquement.
@@ -111,7 +133,7 @@ Le référentiel et l'état des capteurs. Petite, non partitionnée, relue souve
 |---|---|---|
 | `id` | `bigserial` | clé technique |
 | `received_at` | `timestamptz` | |
-| `source` | `text` | `api_sites`, `api_sensors` |
+| `source` | `text` | `api_sites`, `api_sensors`, `api_alerts` |
 | `payload` | `jsonb` | la réponse telle quelle |
 
 Deux tables brutes et non une seule, parce que ces lignes n'ont ni le meme volume ni la meme
@@ -316,8 +338,11 @@ ne doit pas créer une seconde prédiction pour le meme instant.
 
 ### `alerts`
 
-Émises par notre API, pas recopiées de la source. Les alertes de la source servent de
-référence de comparaison, elles arrivent dans le brut.
+Les alertes émises localement ont l'origine `internal`. Le collecteur conserve la réponse de
+la source dans `raw_snapshots`, puis l'ETL valide chaque objet et le matérialise avec l'origine
+`source`. Une alerte source mal formée est rejetée et journalisée sans bloquer les autres
+alertes ni les mesures du passage. Le rejeu est idempotent et ne retire jamais un acquittement
+effectué dans EnerVision.
 
 | Colonne | Type | Note |
 |---|---|---|
@@ -330,6 +355,7 @@ référence de comparaison, elles arrivent dans le brut.
 | `value` | `double precision` | la valeur qui a déclenché |
 | `threshold_value` | `double precision` | le seuil franchi |
 | `status` | `text` | `open`, `acknowledged`, `closed` |
+| `origin` | `text` | `internal`, `source` |
 | `acknowledged_at` | `timestamptz` | |
 | `acknowledged_by` | `bigint` | vers `users.id` |
 
@@ -347,6 +373,10 @@ décrits dans `api-contract.md`. Les règles qui le concernent ici :
 - Une fenêtre sans donnée rend une liste vide et un indicateur de complétude, pas une erreur.
 - Tout écran qui affiche des mesures affiche aussi leur complétude. Un graphe qui cache un
   trou de collecte ment.
+- La route du graphique applique LTTB après ses calculs de couverture et de comparaison. Le
+  frontend reçoit des points natifs sélectionnés, avec leurs timestamps et valeurs inchangés ;
+  les nulls et les bornes des segments restent présents. Les métriques ne sont jamais calculées
+  sur la série réduite.
 
 ## Ce qui n'est pas stocké dans la couche transformée
 

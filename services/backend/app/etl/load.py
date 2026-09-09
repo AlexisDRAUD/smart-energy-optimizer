@@ -6,13 +6,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import case
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.db.models.alert import Alert
 from app.db.models.quality import SensorStatus
 from app.db.models.reading import Reading
 from app.db.models.site import Site
+from app.etl.alerts import SourceAlert
 from app.etl.transform import EnergyReading
 
 LOGGER = logging.getLogger(__name__)
@@ -221,3 +224,45 @@ def load_sensor_status(
         raise
 
     return inserted
+
+
+def load_source_alerts(db: Session, alerts: Sequence[SourceAlert]) -> int:
+    """Materialize source alerts idempotently while preserving local acknowledgement."""
+    if not alerts:
+        return 0
+    values = [
+        {
+            "site_id": alert.site_id,
+            "detected_at": alert.detected_at,
+            "type": alert.type,
+            "severity": alert.severity,
+            "message": alert.message,
+            "value": alert.value,
+            "threshold_value": alert.threshold_value,
+            "status": alert.status,
+            "origin": "source",
+        }
+        for alert in alerts
+    ]
+    statement = insert(Alert).values(values)
+    statement = statement.on_conflict_do_update(
+        constraint="uq_alerts_site_type_detected",
+        set_={
+            "severity": statement.excluded.severity,
+            "message": statement.excluded.message,
+            "value": statement.excluded.value,
+            "threshold_value": statement.excluded.threshold_value,
+            "status": case(
+                (Alert.status == "acknowledged", Alert.status),
+                else_=statement.excluded.status,
+            ),
+            "origin": "source",
+        },
+    ).returning(Alert.id)
+    try:
+        loaded = len(db.execute(statement).scalars().all())
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+    return loaded

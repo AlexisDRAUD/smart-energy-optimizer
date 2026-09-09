@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import './App.css'
+import { FleetCriticalNotifications } from './components/alerts/FleetCriticalNotifications'
 import { Icon } from './components/common/Icon'
 import { SettingsModal, type Theme } from './components/settings/SettingsModal'
 import { useAuth } from './context/AuthProvider'
@@ -97,6 +98,8 @@ function App() {
                         ))}
                     </div>
                 </aside>
+
+                <FleetCriticalNotifications />
 
                 <section className="dashboard-content">
                     <header className="topbar">

@@ -78,6 +78,37 @@ class SnapshotRow:
     payload: Any
 
 
+def extract_snapshots(
+    db: Session,
+    source: str,
+    window_start: datetime,
+    window_end: datetime,
+    after_id: int,
+    limit: int,
+) -> list[SnapshotRow]:
+    """Read one bounded snapshot stream with keyset pagination."""
+    result = db.execute(
+        text(
+            "SELECT id, received_at, payload FROM raw_snapshots "
+            "WHERE source = :source "
+            "AND received_at >= :window_start "
+            "AND received_at < :window_end "
+            "AND id > :after_id "
+            "ORDER BY id LIMIT :limit"
+        ),
+        {
+            "source": source,
+            "window_start": window_start,
+            "window_end": window_end,
+            "after_id": after_id,
+            "limit": limit,
+        },
+    )
+    return [
+        SnapshotRow(id=row.id, received_at=row.received_at, payload=row.payload) for row in result
+    ]
+
+
 def extract_sensor_snapshots(
     db: Session,
     window_start: datetime,
@@ -101,28 +132,12 @@ def extract_sensor_snapshots(
     apres un long arret, la fenetre porte sur des milliers d instantanes, qu il
     ne faut pas charger d un bloc.
     """
-    result = db.execute(
-        text(
-            "SELECT id, received_at, payload FROM raw_snapshots "
-            "WHERE source = 'api_sensors' "
-            "AND received_at >= :window_start "
-            "AND received_at < :window_end "
-            "AND id > :after_id "
-            "ORDER BY id "
-            "LIMIT :limit"
-        ),
-        {
-            "window_start": window_start,
-            "window_end": window_end,
-            "after_id": after_id,
-            "limit": limit,
-        },
-    )
+    result = extract_snapshots(db, "api_sensors", window_start, window_end, after_id, limit)
     snapshots = []
     for row in result:
         if not isinstance(row.payload, dict):
             raise ValueError("Un instantane api_sensors doit contenir un objet JSON")
-        snapshots.append(SnapshotRow(id=row.id, received_at=row.received_at, payload=row.payload))
+        snapshots.append(row)
     return snapshots
 
 

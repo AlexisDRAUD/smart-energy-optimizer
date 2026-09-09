@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
+import { ApiError } from '../api/client'
 import { getLatestPrediction, getModel, getModelPerformance, getPredictions } from '../api/predictions'
 import { DataTable, type Column } from '../components/common/DataTable'
 import { MetricCard } from '../components/common/MetricCard'
@@ -6,6 +7,7 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiMetric, ApiModel, ApiModelPerformance, ApiPrediction } from '../types/api'
 import { formatDateTime, formatEnergy, formatNumber, formatPercent } from '../utils/formatters'
 
@@ -39,34 +41,27 @@ function MetricRow({ label, metric }: Readonly<{ label: string; metric: ApiMetri
 
 export function PredictionsPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [data, setData] = useState<ModelData | null>(null)
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        setIsLoading(true)
-        setError(null)
-        try {
-            const start = periodStart(period)
-            const [model, performance, history] = await Promise.all([
-                getModel(),
-                getModelPerformance(siteId, start),
-                getPredictions(siteId, start),
-            ])
-            // 404 quand aucune prévision n'existe encore pour ce site.
-            const prediction = await getLatestPrediction(siteId).catch(() => null)
-            setData({ model, performance, prediction, history })
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger le modèle.')
-        } finally {
-            setIsLoading(false)
-        }
+    const fetchPredictions = useCallback(async (signal: AbortSignal): Promise<ModelData> => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        const start = periodStart(period)
+        const latestRequest = getLatestPrediction(siteId, signal).catch((cause: unknown) => {
+            if (cause instanceof ApiError && cause.status === 404) return null
+            throw cause
+        })
+        const [model, performance, history, prediction] = await Promise.all([
+            getModel(signal),
+            getModelPerformance(siteId, start, signal),
+            getPredictions(siteId, start, 500, signal),
+            latestRequest,
+        ])
+        return { model, performance, prediction, history }
     }, [period, siteId])
-
-    useEffect(() => {
-        void load()
-    }, [load])
+    const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchPredictions,
+        errorMessage: 'Impossible de charger le modèle.',
+    })
 
     return (
         <>
@@ -74,14 +69,17 @@ export function PredictionsPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={load}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
-                error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                isLoading={sitesLoading || isInitialLoading}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             {data && (

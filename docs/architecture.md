@@ -7,11 +7,11 @@ source (API du formateur)
    |
    v  collector    ecrit  raw_readings, raw_snapshots
    |
-   v  etl          ecrit  sites, readings, sensor_status, etl_runs
+   v  etl          ecrit  sites, readings, sensor_status, alerts, etl_runs
    |
    +--> ml         ne lit que readings et sites, n ecrit rien
    |
-   v  api          ecrit  users, predictions, alerts
+   v  api          ecrit  users, predictions, alertes internes
    |
    v  web          n ecrit rien, n accede pas a la base
 ```
@@ -62,7 +62,8 @@ Les deux passent à la minute. Un passage en échec est journalisé et oublié, 
 
 1. lit `/api/v1/sites` et enregistre la réponse dans `raw_snapshots`, source `api_sites` ;
 2. lit `/api/v1/sensors/status` et l'enregistre de même, source `api_sensors` ;
-3. lit `/api/v1/sites/{id}/current` pour chaque site et écrit les mesures dans `raw_readings`,
+3. lit `/api/v1/alerts` et l'enregistre de même, source `api_alerts` ;
+4. lit `/api/v1/sites/{id}/current` pour chaque site et écrit les mesures dans `raw_readings`,
    en une seule insertion par lot.
 
 Un site injoignable est journalisé et sauté : les autres sont quand même collectés.
@@ -71,10 +72,11 @@ Un site injoignable est journalisé et sauté : les autres sont quand même coll
 
 1. met `sites` à jour depuis le dernier instantané `api_sites` ;
 2. historise `sensor_status` depuis **tous** les instantanés `api_sensors` de sa fenêtre ;
-3. transforme les mesures brutes de sa fenêtre et les charge dans `readings` ;
-4. répare les valeurs nulles refermées ;
-5. recalcule `data_quality_daily` pour les jours qu'il vient de toucher ;
-6. écrit sa trace dans `etl_runs`.
+3. valide et matérialise les alertes de **tous** les instantanés `api_alerts` de sa fenêtre ;
+4. transforme les mesures brutes de sa fenêtre et les charge dans `readings` ;
+5. répare les valeurs nulles refermées ;
+6. recalcule `data_quality_daily` pour les jours qu'il vient de toucher ;
+7. écrit sa trace dans `etl_runs`.
 
 Le résumé quotidien vient en avant-dernier parce qu'il compte ce que les étapes précédentes
 ont laissé en base. Sans lui, la page « Qualité des données » resterait vide alors que les

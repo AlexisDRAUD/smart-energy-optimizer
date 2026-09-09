@@ -24,7 +24,8 @@ export const routes: readonly AppRoute[] = [
 ]
 
 function getRoute(path: string): AppRoute {
-    return routes.find((route) => route.path === path) ?? routes[0]
+    const pathname = path.split('?')[0]
+    return routes.find((route) => route.path === pathname) ?? routes[0]
 }
 
 function getCurrentPath() {

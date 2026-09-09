@@ -124,7 +124,7 @@ La vue d’ensemble récupère les relevés réels du site avec `GET /api/v1/rea
 - Les points de `readings.points` forment la courbe réelle bleue.
 - Les éléments de `predictions.items` forment la courbe turquoise en pointillé.
 - Le trait vertical **MAINTENANT** est placé sur le dernier relevé réel.
-- Le sélecteur permet d’afficher les dernières 24 heures, 7 jours ou 30 jours de mesures. Les prévisions disponibles prolongent la courbe.
+- Le dashboard affiche exactement les dernières 24 heures, 7 jours ou 30 jours de valeurs natives, avec couverture et ruptures aux données manquantes. Les prédictions historiques H+2 de la version de production sont superposées ; les prévisions après la fenêtre apparaissent séparément. La carte « Dernier écart évalué » compare la dernière paire au même instant dans la période. Voir [le contrat du graphique](../../docs/api-contract.md#graphique-de-comparaison-valeurs-natives).
 
 `GET /api/v1/sites/{site_id}/latest` alimente l’indicateur « consommation actuelle ». `GET /api/v1/predictions/latest?site_id=...` alimente l’indicateur de prévision.
 

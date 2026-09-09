@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { getReadings } from '../api/readings'
 import { DataTable, type Column } from '../components/common/DataTable'
 import { MetricCard } from '../components/common/MetricCard'
@@ -6,7 +6,8 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodGranularity, periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
-import type { ApiReadingPoint, ApiReadings } from '../types/api'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
+import type { ApiReadingPoint } from '../types/api'
 import { formatDateTime, formatDay, formatEnergy, formatPercent, formatQuality } from '../utils/formatters'
 
 type DailyTotal = { day: string; consumption: number }
@@ -33,29 +34,20 @@ const columns: Column<ApiReadingPoint>[] = [
 
 export function HistoryPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [readings, setReadings] = useState<ApiReadings | null>(null)
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        setIsLoading(true)
-        setError(null)
-        try {
-            setReadings(await getReadings({ siteId, start: periodStart(period), granularity: periodGranularity(period) }))
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger l’historique.')
-        } finally {
-            setIsLoading(false)
-        }
+    const fetchReadings = useCallback((signal: AbortSignal) => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        return getReadings({ siteId, start: periodStart(period), granularity: periodGranularity(period) }, signal)
     }, [period, siteId])
-
-    useEffect(() => {
-        void load()
-    }, [load])
+    const { data: readings, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchReadings,
+        errorMessage: 'Impossible de charger l’historique.',
+    })
 
     const points = useMemo(() => readings?.points ?? [], [readings])
     const dailyTotals = useMemo(() => totalByDay(points), [points])
+    const newestFirst = useMemo(() => [...points].sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at)), [points])
     const total = dailyTotals.reduce((sum, { consumption }) => sum + consumption, 0)
     const highest = Math.max(...dailyTotals.map(({ consumption }) => consumption), 1)
 
@@ -65,14 +57,17 @@ export function HistoryPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={load}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
-                error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                isLoading={sitesLoading || isInitialLoading}
+                error={sitesError ?? (error && readings ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             <section className="card-grid">
@@ -120,7 +115,7 @@ export function HistoryPage() {
                     </div>
                     <span>{points.length} relevés</span>
                 </div>
-                <DataTable columns={columns} rows={points} rowKey={(point) => point.measured_at} emptyLabel="Aucun relevé sur la période." />
+                <DataTable columns={columns} rows={newestFirst} rowKey={(point) => point.measured_at} emptyLabel="Aucun relevé sur la période." />
             </article>
         </>
     )

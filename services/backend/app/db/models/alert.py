@@ -30,6 +30,7 @@ class Alert(Base):
             "status IN ('open', 'acknowledged', 'closed')",
             name="ck_alerts_status",
         ),
+        CheckConstraint("origin IN ('internal', 'source')", name="ck_alerts_origin"),
         UniqueConstraint("site_id", "type", "detected_at", name="uq_alerts_site_type_detected"),
     )
 
@@ -44,6 +45,7 @@ class Alert(Base):
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
     threshold_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="open")
+    origin: Mapped[str] = mapped_column(String, nullable=False, default="internal")
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     acknowledged_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True

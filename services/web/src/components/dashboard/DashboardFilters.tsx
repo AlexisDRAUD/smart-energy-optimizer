@@ -10,10 +10,13 @@ type DashboardFiltersProps = {
     onRefresh: () => void | Promise<void>
     period?: Period
     onPeriodChange?: (period: Period) => void
+    isSyncing?: boolean
+    lastSyncedAt?: number | null
+    syncError?: boolean
 }
 
 /** Barre de filtres. La période est optionnelle : toutes les pages n'en ont pas besoin. */
-export function DashboardFilters({ sites, siteId, onSiteChange, onRefresh, period, onPeriodChange }: Readonly<DashboardFiltersProps>) {
+export function DashboardFilters({ sites, siteId, onSiteChange, onRefresh, period, onPeriodChange, isSyncing = false, lastSyncedAt = null, syncError = false }: Readonly<DashboardFiltersProps>) {
     const siteOptions = sites.length
         ? sites.map((site) => ({ value: site.site_id, label: `${site.site_name} — ${site.location}` }))
         : [{ value: '', label: 'Aucun site disponible' }]
@@ -37,9 +40,20 @@ export function DashboardFilters({ sites, siteId, onSiteChange, onRefresh, perio
                     onChange={(value) => onPeriodChange(value as Period)}
                 />
             )}
-            <button className="refresh-button" type="button" onClick={onRefresh}>
-                <Icon name="refresh" /> Actualiser les données
-            </button>
+            <div className="sync-control">
+                <span className={`sync-status ${syncError ? 'error' : ''}`} role="status">
+                    {isSyncing
+                        ? 'Synchronisation…'
+                        : syncError
+                            ? 'Synchronisation échouée'
+                            : lastSyncedAt === null
+                                ? 'Actualisation manuelle'
+                                : `Synchronisé à ${new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(lastSyncedAt)}`}
+                </span>
+                <button className="refresh-button" type="button" onClick={onRefresh} disabled={isSyncing} aria-label="Actualiser maintenant" title="Actualiser maintenant">
+                    <Icon name="refresh" /> <span>Actualiser</span>
+                </button>
+            </div>
         </section>
     )
 }

@@ -1,74 +1,72 @@
-import { useCallback, useEffect, useState } from 'react'
-import { getAlerts } from '../api/alerts'
+import { useCallback, useState } from 'react'
+import { getAlertsPage, type AlertsPage } from '../api/alerts'
 import { getOverview } from '../api/dashboard'
-import { getLatestPrediction, getPredictions } from '../api/predictions'
+import { getConsumptionChart } from '../api/consumptionChart'
 import { getLatestReading } from '../api/sites'
-import { getReadings } from '../api/readings'
+import { ApiError } from '../api/client'
+import { CriticalAlertPopup } from '../components/alerts/CriticalAlertPopup'
 import { ConsumptionChart } from '../components/charts/ConsumptionChart'
+import { DataDetails } from '../components/charts/DataDetails'
 import { DataTable, type Column } from '../components/common/DataTable'
 import { MetricCard } from '../components/common/MetricCard'
 import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
-import { periodGranularity, periodStart } from '../data/periods'
+import { chartWindow } from '../utils/consumptionChart'
 import { useFilters } from '../hooks/useFilters'
-import type { ApiAlert, ApiLatestReading, ApiOverview, ApiOverviewSite, ApiPrediction, ApiReadings } from '../types/api'
-import { formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
+import type { ApiConsumptionChart, ApiLatestReading, ApiOverview, ApiOverviewSite } from '../types/api'
+import { formatAlertOrigin, formatDateTime, formatEnergy, formatPercent, formatPower, severityDot } from '../utils/formatters'
 
 type DashboardData = {
     overview: ApiOverview
-    alerts: ApiAlert[]
+    alerts: AlertsPage
     latest: ApiLatestReading | null
-    prediction: ApiPrediction | null
-    predictions: ApiPrediction[]
-    readings: ApiReadings
+    chart: ApiConsumptionChart
 }
 
 export function DashboardPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [data, setData] = useState<DashboardData | null>(null)
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
-
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        setIsLoading(true)
-        setError(null)
-        try {
-            const start = periodStart(period)
-            const [overview, alerts, predictions, readings] = await Promise.all([
-                getOverview(),
-                getAlerts({ start }),
-                getPredictions(siteId, start),
-                getReadings({ siteId, start, granularity: periodGranularity(period) }),
-            ])
-            // L'API répond 404 quand rien n'existe encore pour ce site. Ce
-            // n'est pas une panne, la page doit rester affichable.
-            const [latest, prediction] = await Promise.all([
-                getLatestReading(siteId).catch(() => null),
-                getLatestPrediction(siteId).catch(() => null),
-            ])
-            setData({ overview, alerts, latest, prediction, predictions, readings })
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger le tableau de bord.')
-        } finally {
-            setIsLoading(false)
-        }
+    const fetchDashboard = useCallback(async (signal: AbortSignal): Promise<DashboardData> => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        const { start, end } = chartWindow(period)
+        const latestRequest = getLatestReading(siteId, signal).catch((cause: unknown) => {
+            if (cause instanceof ApiError && cause.status === 404) return null
+            throw cause
+        })
+        const [overview, alerts, chart, latest] = await Promise.all([
+            getOverview(signal),
+            getAlertsPage({ start, limit: 100 }, signal),
+            getConsumptionChart(siteId, start, end, signal),
+            latestRequest,
+        ])
+        return { overview, alerts, latest, chart }
     }, [period, siteId])
-
-    useEffect(() => {
-        void load()
-    }, [load])
+    const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchDashboard,
+        errorMessage: 'Impossible de charger le tableau de bord.',
+    })
 
     const selectedSite = sites.find((site) => site.site_id === siteId)
-    // Le dernier relevé, pas le dernier point du graphique : les points
-    // agrégés sont des sommes et ne se comparent pas à une prévision.
+    const selectedSiteOverview = data?.overview.by_site.find((site) => site.site_id === siteId)
     const currentValue = data?.latest?.consumption_kwh ?? null
-    const predictionValue = data?.prediction?.predicted_kwh ?? null
-    const deviation = currentValue !== null && predictionValue !== null && predictionValue !== 0
-        ? (currentValue - predictionValue) / predictionValue * 100
-        : null
+    const futurePredictions = data?.chart.future_predictions ?? []
+    const prediction = futurePredictions[futurePredictions.length - 1]
+    const comparison = data?.chart.last_evaluated
+    const deviation = comparison?.deviation_percent ?? null
+    const criticalAlert = data?.alerts.items.find((alert) => alert.severity === 'critical')
+    const [dismissedCriticalId, setDismissedCriticalId] = useState<number | null>(() => {
+        const stored = sessionStorage.getItem('enervision_dismissed_critical_alert')
+        return stored === null ? null : Number(stored)
+    })
 
     const siteNameOf = (siteIdentifier: string) => sites.find((site) => site.site_id === siteIdentifier)?.site_name ?? siteIdentifier
+    const dismissCriticalAlert = () => {
+        if (!criticalAlert) return
+        sessionStorage.setItem('enervision_dismissed_critical_alert', String(criticalAlert.id))
+        setDismissedCriticalId(criticalAlert.id)
+    }
 
     const columns: Column<ApiOverviewSite>[] = [
         { header: 'Site', cell: (row) => siteNameOf(row.site_id) },
@@ -84,14 +82,17 @@ export function DashboardPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={() => { void reloadSites(); void load() }}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
-                error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                isLoading={sitesLoading || isInitialLoading}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
             {data && selectedSite && (
@@ -99,26 +100,33 @@ export function DashboardPage() {
                     <section className="card-grid">
                         <MetricCard
                             label="Consommation actuelle"
-                            value={formatEnergy(currentValue)}
-                            hint={data.latest ? formatDateTime(data.latest.measured_at) : 'Aucun relevé disponible'}
+                            value={currentValue === null ? 'Mesure manquante' : formatEnergy(currentValue)}
+                            hint={<>{data.latest ? formatDateTime(data.latest.measured_at) : 'Aucun relevé disponible'}{currentValue === null && <><br />La dernière mesure ne contient pas de consommation. Une prévision peut exister à partir de relevés antérieurs.</>}</>}
                             dot="blue"
                         />
                         <MetricCard
                             label="Prédiction H+2"
-                            value={formatEnergy(predictionValue)}
-                            hint={data.prediction ? `Prévision pour ${formatDateTime(data.prediction.target_at)}` : 'Aucune prévision disponible'}
+                            value={formatEnergy(prediction?.predicted_kwh)}
+                            hint={prediction ? `Pour ${formatDateTime(prediction.target_at)} · version ${data.chart.model_version}` : 'Aucune prévision future H+2 disponible'}
                             dot="teal"
                         />
                         <MetricCard
-                            label="Écart modèle / réel"
-                            value={deviation === null ? '—' : `${deviation > 0 ? '+' : ''}${formatPercent(deviation)}`}
-                            hint="Entre le dernier relevé et la prévision"
+                            label="Dernier écart évalué"
+                            value={deviation === null ? 'Indisponible' : `${deviation > 0 ? '+' : ''}${formatPercent(deviation)}`}
+                            hint={<>
+                                {comparison ? `${formatDateTime(comparison.target_at)} · H+2 (${comparison.horizon_minutes} min) · version ${comparison.model_version}` : `Aucune paire réel/prédit sur la période · H+2 · version ${data.chart.model_version}`}
+                                {comparison && <><br />Réel {formatEnergy(comparison.actual_kwh)} · prédit {formatEnergy(comparison.predicted_kwh)}</>}
+                                {comparison?.predicted_kwh === 0 && <><br />Pourcentage indisponible : prédiction égale à zéro.</>}
+                                <br />Dernière comparaison historique de la période.
+                            </>}
                             dot="orange"
                         />
                         <MetricCard
-                            label="Charge du parc"
-                            value={formatPercent(data.overview.average_load_rate_percent)}
-                            hint={`${formatPower(data.overview.total_consumption_kw)} sur ${formatPower(data.overview.total_capacity_kw)}`}
+                            label="Charge du site"
+                            value={selectedSiteOverview ? formatPercent(selectedSiteOverview.load_rate_percent) : 'Indisponible'}
+                            hint={selectedSiteOverview
+                                ? <>{selectedSite.site_name} · {formatPower(selectedSiteOverview.consumption_kw)} sur {formatPower(selectedSiteOverview.capacity_kw)}<br />{formatDateTime(selectedSiteOverview.measured_at)}</>
+                                : `${selectedSite.site_name} · aucun relevé exploitable sur ${formatPower(selectedSite.capacity_kw)}`}
                             dot="green"
                         />
                     </section>
@@ -128,36 +136,44 @@ export function DashboardPage() {
                             <div className="card-heading">
                                 <div>
                                     <h2>Consommation réelle et prédite</h2>
-                                    <p>
-                                        {period === 'day'
-                                            ? `Mesures à la minute et prévisions pour ${selectedSite.site_name}`
-                                            : `Consommation agrégée pour ${selectedSite.site_name}`}
-                                    </p>
+                                    <p>{selectedSite.site_name} · H+2 · version {data.chart.model_version}</p>
                                 </div>
                                 <div className="legend">
                                     <span><i className="solid-line" /> Réel</span>
-                                    {period === 'day' && <span><i className="dashed-line" /> Prédiction</span>}
+                                    <span><i className="dashed-line" /> Prédiction H+2</span>
                                 </div>
                             </div>
-                            {data.readings.points.length
-                                ? <ConsumptionChart points={data.readings.points} predictions={period === 'day' ? data.predictions : []} />
-                                : <p className="empty-state">Aucun relevé sur la période.</p>}
+                            <p className="chart-context">Du {formatDateTime(data.chart.start)} au {formatDateTime(data.chart.end)} · heures locales</p>
+                            <ConsumptionChart points={data.chart.readings} predictions={data.chart.historical_predictions} futurePredictions={data.chart.future_predictions} futureEnd={data.chart.future_end} start={data.chart.start} end={data.chart.end} cadenceSeconds={data.chart.cadence_seconds} />
+                            <p className="chart-context">Zone teintée : futur H+2 agrandi pour rester lisible. L’échelle de consommation reste commune. L’écart n’est évaluable qu’à réception du réel au même instant.</p>
+                            {data.chart.future_coverage.valid_minutes === 0 && <p className="chart-context">Emplacement réservé aux prévisions futures : aucune valeur disponible.</p>}
+                            {data.chart.prediction_coverage.valid_minutes === 0 && <p className="chart-context">Aucune prédiction historique exploitable pour cette version sur la période.</p>}
+                            <div className="data-quality-summary" aria-label="Qualité des données réelles">
+                                <span><small>Couverture exploitable</small><strong>{formatPercent(data.chart.reading_coverage.percent)}</strong></span>
+                                <span><small>Valeurs nulles</small><strong>{data.chart.reading_coverage.null_minutes.toLocaleString('fr-FR')}</strong></span>
+                                <span><small>Minutes absentes</small><strong>{data.chart.reading_coverage.missing_minutes.toLocaleString('fr-FR')}</strong></span>
+                            </div>
+                            <DataDetails chart={data.chart} />
                         </article>
 
                         <div className="right-column">
                             <article className="side-card">
-                                <h2>Alertes récentes</h2>
-                                {data.alerts.length
-                                    ? data.alerts.slice(0, 3).map((alert) => (
+                                <h2>Alertes récentes du parc</h2>
+                                <p className="alert-feed-summary">
+                                    {data.alerts.total.toLocaleString('fr-FR')} alerte{data.alerts.total > 1 ? 's' : ''} ouverte{data.alerts.total > 1 ? 's' : ''} sur les sites accessibles
+                                </p>
+                                {data.alerts.items.length
+                                    ? data.alerts.items.slice(0, 3).map((alert) => (
                                         <div className="alert-item" key={alert.id}>
                                             <span className={`metric-dot ${severityDot(alert.severity)}`} />
                                             <div>
                                                 <strong>{alert.message}</strong>
-                                                <small>{formatDateTime(alert.detected_at)}</small>
+                                                <small>{siteNameOf(alert.site_id)} · {formatAlertOrigin(alert.origin)} · {formatDateTime(alert.detected_at)}</small>
                                             </div>
                                         </div>
                                     ))
-                                    : <p className="empty-state">Aucune alerte sur la période.</p>}
+                                    : <p className="empty-state">Aucune alerte sur les sites accessibles pendant la période.</p>}
+                                <a className="alert-feed-link" href="#/alertes">Voir le détail des alertes</a>
                             </article>
 
                         </div>
@@ -178,6 +194,10 @@ export function DashboardPage() {
                             emptyLabel="Aucun site avec un relevé exploitable."
                         />
                     </article>
+
+                    {criticalAlert && criticalAlert.id !== dismissedCriticalId && (
+                        <CriticalAlertPopup alert={criticalAlert} siteName={siteNameOf(criticalAlert.site_id)} onClose={dismissCriticalAlert} />
+                    )}
                 </>
             )}
         </>

@@ -7,8 +7,9 @@ import { PageFeedback } from '../components/common/PageFeedback'
 import { DashboardFilters } from '../components/dashboard/DashboardFilters'
 import { periodStart } from '../data/periods'
 import { useFilters } from '../hooks/useFilters'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { ApiAlert, Severity } from '../types/api'
-import { formatDateTime, formatDay, formatNumber, formatSeverity } from '../utils/formatters'
+import { formatAlertOrigin, formatDateTime, formatDay, formatNumber, formatSeverity } from '../utils/formatters'
 
 const statusLabels = { open: 'Ouverte', acknowledged: 'Acquittée', closed: 'Fermée' }
 
@@ -20,6 +21,7 @@ const columns: Column<ApiAlert>[] = [
     { header: 'Valeur', cell: (alert) => formatNumber(alert.value) },
     { header: 'Seuil', cell: (alert) => formatNumber(alert.threshold_value) },
     { header: 'État', cell: (alert) => statusLabels[alert.status] },
+    { header: 'Origine', cell: (alert) => formatAlertOrigin(alert.origin) },
 ]
 
 /** Une barre par jour où au moins une alerte a été détectée. */
@@ -40,29 +42,40 @@ function countBySeverity(alerts: ApiAlert[], ...severities: Severity[]) {
 
 export function AlertsPage() {
     const { sites, siteId, setSiteId, period, setPeriod, error: sitesError, isLoading: sitesLoading, reload: reloadSites } = useFilters()
-    const [alerts, setAlerts] = useState<ApiAlert[]>([])
-    const [error, setError] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
+    const [currentHash, setCurrentHash] = useState(window.location.hash)
+    useEffect(() => {
+        const updateHash = () => setCurrentHash(window.location.hash)
+        window.addEventListener('hashchange', updateHash)
+        return () => window.removeEventListener('hashchange', updateHash)
+    }, [])
+    const notificationParams = new URLSearchParams(currentHash.split('?')[1] ?? '')
+    const linkedSiteId = notificationParams.get('site_id')
+    const linkedAlertId = Number(notificationParams.get('alert_id')) || null
 
+    useEffect(() => {
+        if (!linkedSiteId || !sites.some((site) => site.site_id === linkedSiteId)) return
+        if (siteId !== linkedSiteId) setSiteId(linkedSiteId)
+        if (period !== 'week') setPeriod('week')
+    }, [linkedSiteId, period, setPeriod, setSiteId, siteId, sites])
     // Une seule requête, donc une seule source pour les compteurs, le
     // graphique et le tableau. /alerts/summary ne sait pas filtrer par site,
     // ses chiffres porteraient sur tout le parc.
-    const load = useCallback(async () => {
-        if (siteId === null) return
-        setIsLoading(true)
-        setError(null)
-        try {
-            setAlerts(await getAlerts({ siteId, start: periodStart(period) }))
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Impossible de charger les alertes.')
-        } finally {
-            setIsLoading(false)
-        }
+    const fetchAlerts = useCallback(async (signal: AbortSignal) => {
+        if (siteId === null) throw new Error('Aucun site sélectionné.')
+        return getAlerts({ siteId, start: periodStart(period), status: 'all' }, signal)
     }, [period, siteId])
+    const { data, error, isInitialLoading, isSyncing, lastSyncedAt, refresh } = useAutoRefresh({
+        enabled: siteId !== null,
+        key: `${siteId ?? 'none'}:${period}`,
+        load: fetchAlerts,
+        errorMessage: 'Impossible de charger les alertes.',
+    })
+    const alerts = data ?? []
 
     useEffect(() => {
-        void load()
-    }, [load])
+        if (linkedAlertId === null || !alerts.some((alert) => alert.id === linkedAlertId)) return
+        document.getElementById(`alert-${linkedAlertId}`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    }, [alerts, linkedAlertId])
 
     const chartData = useMemo(() => alertsByDay(alerts), [alerts])
 
@@ -72,18 +85,25 @@ export function AlertsPage() {
                 sites={sites}
                 siteId={siteId}
                 onSiteChange={setSiteId}
-                onRefresh={load}
+                onRefresh={refresh}
                 period={period}
                 onPeriodChange={setPeriod}
+                isSyncing={isSyncing}
+                lastSyncedAt={lastSyncedAt}
+                syncError={error !== null}
             />
             <PageFeedback
-                isLoading={sitesLoading || isLoading}
-                error={sitesError ?? error}
-                onRetry={() => { void reloadSites(); void load() }}
+                isLoading={sitesLoading || isInitialLoading}
+                error={sitesError ?? (error && data ? `${error} Les dernières données reçues restent affichées ; elles ne sont pas à jour.` : error)}
+                onRetry={() => { void reloadSites(); void refresh() }}
             />
 
+            <p className="alert-origin-note">
+                Les alertes collectées conservent les seuils de leur source. Les règles internes ne sont pas attribuées au modèle ML.
+            </p>
+
             <section className="card-grid">
-                <MetricCard label="Alertes ouvertes" value={alerts.length} dot="blue" />
+                <MetricCard label="Alertes sur la période" value={alerts.length} dot="blue" />
                 <MetricCard label="Critiques" value={countBySeverity(alerts, 'critical')} dot="red" />
                 <MetricCard label="Hautes" value={countBySeverity(alerts, 'high')} dot="orange" />
                 <MetricCard label="Moyennes et faibles" value={countBySeverity(alerts, 'medium', 'low')} dot="teal" />
@@ -91,7 +111,7 @@ export function AlertsPage() {
 
             <article className="chart-card">
                 <div className="card-heading">
-                    <div><h2>Alertes ouvertes par jour</h2></div>
+                    <div><h2>Alertes par jour</h2></div>
                     <span className="chart-unit">Alertes</span>
                 </div>
                 {chartData.length
@@ -104,7 +124,14 @@ export function AlertsPage() {
                     <div><h2>Détail des alertes</h2></div>
                     <span>{alerts.length} alerte{alerts.length > 1 ? 's' : ''}</span>
                 </div>
-                <DataTable columns={columns} rows={alerts} rowKey={(alert) => String(alert.id)} emptyLabel="Aucune alerte sur la période." />
+                <DataTable
+                    columns={columns}
+                    rows={alerts}
+                    rowKey={(alert) => String(alert.id)}
+                    rowId={(alert) => `alert-${alert.id}`}
+                    rowClassName={(alert) => alert.id === linkedAlertId ? 'alert-row-highlight' : undefined}
+                    emptyLabel="Aucune alerte sur la période."
+                />
             </article>
         </>
     )
