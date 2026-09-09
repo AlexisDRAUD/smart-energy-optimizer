@@ -33,7 +33,10 @@ const fixture = (): ApiConsumptionChart => ({
 })
 
 function filters(period: Period = 'day'): ReturnType<typeof useFilters> {
-    return { sites: [{ site_id: 'LYO-01', site_name: 'Lyon', site_type: 'office', location: 'Lyon', capacity_kw: 1000, status: 'active', last_seen_at: start }], siteId: 'LYO-01', setSiteId: jest.fn(), period, setPeriod: jest.fn(), error: null, isLoading: false, reload: jest.fn() }
+    return { sites: [
+        { site_id: 'LYO-01', site_name: 'Lyon', site_type: 'office', location: 'Lyon', capacity_kw: 1000, status: 'active', last_seen_at: start },
+        { site_id: 'PAR-01', site_name: 'Paris', site_type: 'office', location: 'Paris', capacity_kw: 900, status: 'active', last_seen_at: start },
+    ], siteId: 'LYO-01', setSiteId: jest.fn(), period, setPeriod: jest.fn(), error: null, isLoading: false, reload: jest.fn() }
 }
 
 beforeEach(() => {
@@ -64,9 +67,33 @@ test.each(['day', 'week', 'month'] as const)('historical comparison and predicti
     expect(chart).toHaveAttribute('data-future-end', '2026-09-02T14:00:00Z')
     expect(container.querySelector('.future-series .prediction-points circle')).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'Prévisions futures H+2' })).not.toBeInTheDocument()
-    expect(jest.mocked(getAlerts).mock.calls[0][0]).toMatchObject({ siteId: 'LYO-01' })
+    expect(jest.mocked(getAlerts).mock.calls[0][0]).toEqual(expect.objectContaining({ limit: 3 }))
+    expect(jest.mocked(getAlerts).mock.calls[0][0]).not.toHaveProperty('siteId')
     const [, requestedStart, requestedEnd] = jest.mocked(getConsumptionChart).mock.calls[0]
     expect(Date.parse(requestedEnd) - Date.parse(requestedStart)).toBe(({ day: 1, week: 7, month: 30 }[period]) * 86400000)
+})
+
+test('recent alerts include another accessible site regardless of the chart selection', async () => {
+    jest.mocked(getAlerts).mockResolvedValue([{
+        id: 42,
+        site_id: 'PAR-01',
+        detected_at: end,
+        type: 'spike',
+        severity: 'high',
+        message: 'Pic détecté',
+        value: 700,
+        threshold_value: 600,
+        status: 'open',
+        origin: 'source',
+        acknowledged_at: null,
+    }])
+
+    render(<DashboardPage />)
+
+    const alerts = (await screen.findByText('Alertes récentes du parc')).closest('article')!
+    expect(alerts).toHaveTextContent('Pic détecté')
+    expect(alerts).toHaveTextContent('Paris')
+    expect(alerts).toHaveTextContent('Source collectée')
 })
 
 test('no evaluated pair is explicitly unavailable', async () => {

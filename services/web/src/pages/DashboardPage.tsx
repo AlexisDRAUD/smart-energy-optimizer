@@ -34,7 +34,7 @@ export function DashboardPage() {
         })
         const [overview, alerts, chart, latest] = await Promise.all([
             getOverview(signal),
-            getAlerts({ siteId, start }, signal),
+            getAlerts({ start, limit: 3 }, signal),
             getConsumptionChart(siteId, start, end, signal),
             latestRequest,
         ])
@@ -144,18 +144,18 @@ export function DashboardPage() {
 
                         <div className="right-column">
                             <article className="side-card">
-                                <h2>Alertes récentes</h2>
+                                <h2>Alertes récentes du parc</h2>
                                 {data.alerts.length
                                     ? data.alerts.slice(0, 3).map((alert) => (
                                         <div className="alert-item" key={alert.id}>
                                             <span className={`metric-dot ${severityDot(alert.severity)}`} />
                                             <div>
                                                 <strong>{alert.message}</strong>
-                                                <small>{formatAlertOrigin(alert.origin)} · {formatDateTime(alert.detected_at)}</small>
+                                                <small>{siteNameOf(alert.site_id)} · {formatAlertOrigin(alert.origin)} · {formatDateTime(alert.detected_at)}</small>
                                             </div>
                                         </div>
                                     ))
-                                    : <p className="empty-state">Aucune alerte sur la période.</p>}
+                                    : <p className="empty-state">Aucune alerte sur les sites accessibles pendant la période.</p>}
                             </article>
 
                         </div>
