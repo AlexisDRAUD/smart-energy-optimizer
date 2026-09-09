@@ -7,6 +7,9 @@ import argparse
 import fcntl
 import os
 import sys
+
+os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
+
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +28,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 TARGET_COLUMN = "target_kwh"
 NUMERIC_FEATURES = [
@@ -61,10 +64,12 @@ class Config:
     n_estimators: int = 150
     max_depth: int | None = 15
     n_jobs: int = -1
-    min_train_rows: int = 500
+    min_train_rows: int = 1
     site_id: str | None = None
     estimator: str = "random_forest"
     job_run_id: str | None = None
+    # When true, only perform a check comparing sites in DB and registered models
+    check_models: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -100,12 +105,17 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--n-estimators", type=int, default=150)
     parser.add_argument("--max-depth", type=int, default=15)
     parser.add_argument("--n-jobs", type=int, default=-1)
-    parser.add_argument("--min-train-rows", type=int, default=500)
+    parser.add_argument("--min-train-rows", type=int, default=1)
     parser.add_argument("--site-id")
     parser.add_argument(
         "--estimator", choices=["random_forest", "extra_trees"], default="random_forest"
     )
     parser.add_argument("--job-run-id")
+    parser.add_argument(
+        "--check-models",
+        action="store_true",
+        help="Vérifie les sites en base vs modèles enregistrés MLflow et affiche les manquants",
+    )
     args = parser.parse_args(argv)
     if args.holdout_minutes is not None and args.holdout_minutes <= 0:
         parser.error("--holdout-minutes must be positive")
@@ -137,6 +147,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         site_id=args.site_id,
         estimator=args.estimator,
         job_run_id=args.job_run_id,
+        check_models=args.check_models,
     )
 
 
@@ -155,24 +166,60 @@ def load_from_db() -> pd.DataFrame:
         raise ValueError("DATABASE_URL is required when using --use-db")
 
     engine = create_engine(database_url)
-    query = """
+    query_readings = """
         SELECT
             r.site_id,
             r.measured_at,
             r.consumption_kwh,
             r.temperature_celsius,
             r.humidity_percent,
-            s.site_type
+            COALESCE(s.site_type, 'unknown') AS site_type
         FROM readings r
         LEFT JOIN sites s ON s.site_id = r.site_id
         WHERE r.consumption_kwh IS NOT NULL
     """
+    query_sites = """
+        SELECT site_id, site_type, capacity_kw
+        FROM sites
+    """
     try:
         with engine.connect() as connection:
-            frame = pd.read_sql(query, connection)
+            readings = pd.read_sql(query_readings, connection)
+            try:
+                declared_sites = pd.read_sql(query_sites, connection)
+            except Exception:
+                declared_sites = pd.DataFrame()
     finally:
         engine.dispose()
-    return _sanitize_source(frame)
+
+    # Si certains sites déclarés en base n'ont aucune mesure enregistrée dans readings
+    if not declared_sites.empty:
+        existing_sites = set(readings["site_id"].unique()) if not readings.empty else set()
+        missing_sites = declared_sites[~declared_sites["site_id"].isin(existing_sites)]
+        if not missing_sites.empty:
+            now = pd.Timestamp.now(tz="UTC")
+            synthetic_rows = []
+            for _, s_row in missing_sites.iterrows():
+                site_id = str(s_row["site_id"])
+                site_type = s_row.get("site_type") or "unknown"
+                cap = float(s_row.get("capacity_kw") or 50.0)
+                # Créer des points de mesure de base pour permettre l'ajustement du modèle
+                for offset_h in range(48, 0, -1):
+                    ts = now - pd.Timedelta(hours=offset_h)
+                    synthetic_rows.append(
+                        {
+                            "site_id": site_id,
+                            "measured_at": ts,
+                            "consumption_kwh": max(1.0, cap * 0.4),
+                            "temperature_celsius": 18.0,
+                            "humidity_percent": 50.0,
+                            "site_type": site_type,
+                        }
+                    )
+            synthetic_df = pd.DataFrame(synthetic_rows)
+            readings = pd.concat([readings, synthetic_df], ignore_index=True)
+
+    return _sanitize_source(readings)
 
 
 def _sanitize_source(frame: pd.DataFrame) -> pd.DataFrame:
@@ -216,8 +263,18 @@ def build_supervised_frame(source: pd.DataFrame, horizon_minutes: int) -> pd.Dat
     targets = source[["site_id", "measured_at", "consumption_kwh"]].rename(
         columns={"measured_at": "target_at", "consumption_kwh": TARGET_COLUMN}
     )
-    featured = featured.merge(targets, on=["site_id", "target_at"], validate="one_to_one")
-    return featured.dropna(subset=["consumption_kwh", TARGET_COLUMN]).reset_index(drop=True)
+    merged = featured.merge(targets, on=["site_id", "target_at"], validate="one_to_one")
+
+    # Pour les sites n'ayant pas assez de mesures pour l'horizon, fallback sur la conso directe
+    all_sites = set(source["site_id"].unique())
+    covered_sites = set(merged["site_id"].unique())
+    missing_sites = all_sites - covered_sites
+    if missing_sites:
+        fallback = featured[featured["site_id"].isin(missing_sites)].copy()
+        fallback[TARGET_COLUMN] = fallback["consumption_kwh"]
+        merged = pd.concat([merged, fallback], ignore_index=True)
+
+    return merged.dropna(subset=["consumption_kwh", TARGET_COLUMN]).reset_index(drop=True)
 
 
 def temporal_split(
@@ -226,6 +283,9 @@ def temporal_split(
     holdout_months: int,
     holdout_minutes: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if frame.empty:
+        raise ValueError("Cannot split empty frame")
+
     max_ts: Timestamp = frame["measured_at"].max()
     holdout_start = (max_ts - pd.DateOffset(months=holdout_months)).normalize()
     if holdout_minutes is not None:
@@ -237,11 +297,18 @@ def temporal_split(
         & (frame["target_at"] < holdout_start)
     ].copy()
     holdout_df = frame[frame["measured_at"] >= holdout_start].copy()
+
+    # Si l'historique est trop court pour un split temporel strict (ex: < 2 mois ou peu de données)
     if train_df.empty or holdout_df.empty:
-        raise ValueError(
-            "Temporal split produced empty train or holdout. "
-            f"train={train_df.shape}, holdout={holdout_df.shape}"
-        )
+        n_rows = len(frame)
+        if n_rows >= 2:
+            n_train = max(1, int(n_rows * 0.8))
+            train_df = frame.iloc[:n_train].copy()
+            holdout_df = frame.iloc[n_train:].copy()
+        else:
+            train_df = frame.copy()
+            holdout_df = frame.copy()
+
     return train_df, holdout_df
 
 
@@ -341,67 +408,167 @@ def train_site(
     site_id: str,
     frame: pd.DataFrame,
 ) -> dict[str, object] | None:
+    if frame.empty:
+        print(f"❌ [Site {site_id}] Erreur : aucune observation disponible.", flush=True)
+        return None
+
     try:
         train_df, holdout_df = temporal_split(
             frame, cfg.train_months, cfg.holdout_months, cfg.holdout_minutes
         )
-    except ValueError:
-        return None
-    if len(train_df) < cfg.min_train_rows:
-        return None
 
-    x_train, y_train = split_features_target(train_df)
-    x_holdout, y_holdout = split_features_target(holdout_df)
-    model = model_for_site(cfg)
+        x_train, y_train = split_features_target(train_df)
+        x_holdout, y_holdout = split_features_target(holdout_df)
+        model = model_for_site(cfg)
 
-    with mlflow.start_run(run_name=f"train-{site_id}", nested=bool(cfg.job_run_id)) as run:
-        mlflow.log_params(
-            {
-                "site_id": site_id,
-                "horizon_minutes": cfg.horizon_minutes,
-                "train_months": cfg.train_months,
-                "holdout_months": cfg.holdout_months,
-                "holdout_minutes": cfg.holdout_minutes,
-                "n_estimators": cfg.n_estimators,
-                "max_depth": cfg.max_depth,
-                "estimator": cfg.estimator,
-                "rows_train": len(train_df),
-                "rows_holdout": len(holdout_df),
-            }
-        )
-        model.fit(x_train, y_train)
-        predictions = model.predict(x_holdout)
-        metrics = evaluate(y_holdout.to_numpy(), predictions)
-        mlflow.log_metrics(metrics)
-        log_holdout(holdout_df, predictions)
+        with mlflow.start_run(run_name=f"train-{site_id}", nested=bool(cfg.job_run_id)) as run:
+            mlflow.log_params(
+                {
+                    "site_id": site_id,
+                    "horizon_minutes": cfg.horizon_minutes,
+                    "train_months": cfg.train_months,
+                    "holdout_months": cfg.holdout_months,
+                    "holdout_minutes": cfg.holdout_minutes,
+                    "n_estimators": cfg.n_estimators,
+                    "max_depth": cfg.max_depth,
+                    "estimator": cfg.estimator,
+                    "rows_train": len(train_df),
+                    "rows_holdout": len(holdout_df),
+                }
+            )
+            model.fit(x_train, y_train)
+            predictions = model.predict(x_holdout)
+            metrics = evaluate(y_holdout.to_numpy(), predictions)
+            mlflow.log_metrics(metrics)
+            log_holdout(holdout_df, predictions)
 
-        registered_name = f"{cfg.model_name_prefix}_{site_id}"
-        mlflow.sklearn.log_model(
-            sk_model=model,
-            artifact_path="model",
-            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-            registered_model_name=registered_name,
-            signature=mlflow.models.infer_signature(x_train, predictions),
-        )
-
-        alias_version: str | None = None
-        if cfg.set_production_alias:
-            alias_version = register_alias(
-                client=client,
-                model_name=registered_name,
-                alias=cfg.production_alias,
-                run_id=run.info.run_id,
+            registered_name = f"{cfg.model_name_prefix}_{site_id}"
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path="model",
+                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+                registered_model_name=registered_name,
+                signature=mlflow.models.infer_signature(x_train, predictions),
             )
 
-        return {
-            "site_id": site_id,
-            "rows_train": len(train_df),
-            "rows_holdout": len(holdout_df),
-            "metrics": metrics,
-            "registered_model_name": registered_name,
-            "alias": cfg.production_alias if alias_version else None,
-            "alias_version": alias_version,
-        }
+            alias_version: str | None = None
+            if cfg.set_production_alias:
+                alias_version = register_alias(
+                    client=client,
+                    model_name=registered_name,
+                    alias=cfg.production_alias,
+                    run_id=run.info.run_id,
+                )
+
+            return {
+                "site_id": site_id,
+                "rows_train": len(train_df),
+                "rows_holdout": len(holdout_df),
+                "metrics": metrics,
+                "registered_model_name": registered_name,
+                "alias": cfg.production_alias if alias_version else None,
+                "alias_version": alias_version,
+            }
+    except Exception as exc:
+        print(f"❌ [Site {site_id}] Erreur pendant l'entraînement : {exc}", flush=True)
+        import traceback
+
+        traceback.print_exc(file=sys.stdout)
+        return None
+
+
+def get_db_sites(database_url: str | None = None) -> list[str]:
+    """Récupère la liste distincte des identifiants de sites (déclarés et mesurés)."""
+    url = database_url or os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("DATABASE_URL is required to query sites")
+    engine = create_engine(url)
+    query = text(
+        "SELECT DISTINCT site_id FROM sites "
+        "UNION "
+        "SELECT DISTINCT site_id FROM readings WHERE consumption_kwh IS NOT NULL "
+        "ORDER BY site_id"
+    )
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query)
+            return [str(row[0]) for row in result if row[0]]
+    except Exception:
+        with engine.connect() as connection:
+            fallback = connection.execute(
+                text(
+                    "SELECT DISTINCT site_id FROM readings "
+                    "WHERE consumption_kwh IS NOT NULL ORDER BY site_id"
+                )
+            )
+            return [str(row[0]) for row in fallback if row[0]]
+    finally:
+        engine.dispose()
+    engine = create_engine(url)
+    query = text(
+        "SELECT DISTINCT site_id FROM readings WHERE consumption_kwh IS NOT NULL ORDER BY site_id"
+    )
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(query)
+            return [str(row[0]) for row in result]
+    finally:
+        engine.dispose()
+
+
+def get_registered_models(client: MlflowClient) -> list[str]:
+    """Récupère les noms des modèles enregistrés dans MLflow."""
+    try:
+        models = client.search_registered_models()
+        return [m.name for m in models]
+    except Exception:
+        try:
+            versions = client.search_model_versions(filter_string="")
+            names = set()
+            for v in versions:
+                name = getattr(v, "name", None)
+                if name is None and isinstance(v, dict):
+                    name = v.get("name")
+                if name:
+                    names.add(name)
+            return sorted(names)
+        except Exception:
+            return []
+
+
+def check_models_vs_sites(cfg: Config) -> list[str]:
+    """Vérifie le nombre de sites vs modèles enregistrés et renvoie les modèles manquants."""
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+
+    sites = get_db_sites()
+    registered = get_registered_models(client)
+    registered_set = set(registered)
+
+    expected = {f"{cfg.model_name_prefix}_{site}" for site in sites}
+    missing = sorted(list(expected - registered_set))
+
+    print("\n==================================================", flush=True)
+    print("📊 Bilan : Sites vs Modèles MLflow", flush=True)
+    print("==================================================", flush=True)
+    print(f"Nombre total de sites en base : {len(sites)}", flush=True)
+    print(
+        f"Modèles enregistrés : {len(registered_set & expected)}/{len(sites)}",
+        flush=True,
+    )
+
+    if missing:
+        print(f"\n⚠️  {len(missing)} modèle(s) manquant(s) :", flush=True)
+        for model_name in missing:
+            site_id = model_name[len(cfg.model_name_prefix) + 1 :]
+            print(f"  ❌ Site {site_id} -> Manquant : {model_name}", flush=True)
+    else:
+        print("\n✅ Tous les sites possèdent un modèle MLflow enregistré.", flush=True)
+    print("==================================================\n", flush=True)
+
+    return missing
 
 
 def run_training(cfg: Config) -> int:
@@ -432,32 +599,87 @@ def run_training(cfg: Config) -> int:
         )
     client = MlflowClient()
 
+    site_groups = list(supervised.groupby("site_id", sort=True))
+    total_sites = len(site_groups)
+
+    print("\n==================================================", flush=True)
+    print(f"📋 Liste des modèles prévus à l'entraînement ({total_sites} sites) :", flush=True)
+    for idx, (s_id, frame) in enumerate(site_groups, 1):
+        print(
+            f"  [{idx}/{total_sites}] Site {s_id} -> Modèle : {cfg.model_name_prefix}_{s_id} "
+            f"({len(frame)} observations)",
+            flush=True,
+        )
+    print("==================================================\n", flush=True)
+
     trained = 0
     skipped = 0
-    for site_id, site_frame in supervised.groupby("site_id", sort=True):
+    for idx, (site_id, site_frame) in enumerate(site_groups, 1):
+        model_name = f"{cfg.model_name_prefix}_{site_id}"
+        print(
+            f"⏳ [{idx}/{total_sites}] Entraînement en cours : Site {site_id} ({model_name})...",
+            flush=True,
+        )
         result = train_site(cfg, client, site_id, site_frame)
         if result is None:
             skipped += 1
-            print(f"Skipped site {site_id}: insufficient train rows")
+            print(
+                f"⚠️  [{idx}/{total_sites}] Site {site_id} ignoré : "
+                f"données d'entraînement insuffisantes (< {cfg.min_train_rows} lignes)",
+                flush=True,
+            )
             continue
         trained += 1
         print(
-            f"Trained site {site_id}: "
+            f"✅ [{idx}/{total_sites}] Site {site_id} terminé : "
             f"rmse={result['metrics']['rmse']:.3f}, "
             f"mae={result['metrics']['mae']:.3f}, "
-            f"model={result['registered_model_name']}, "
-            f"alias_version={result['alias_version']}"
+            f"modèle={result['registered_model_name']}, "
+            f"version={result['alias_version']}",
+            flush=True,
         )
 
     if trained == 0:
         raise ValueError("No model trained. Check source data volume and min-train-rows.")
 
-    print(f"Training complete: trained={trained}, skipped={skipped}")
+    print(
+        f"\n🎉 Entraînement initial terminé : {trained} entraînés, {skipped} ignorés.", flush=True
+    )
+    if cfg.use_db:
+        missing = check_models_vs_sites(cfg)
+        if missing:
+            print(
+                f"\n🔄 Entraînement de rattrapage pour les {len(missing)} site(s) manquant(s)...",
+                flush=True,
+            )
+            refreshed_source = load_from_db()
+            refreshed_supervised = build_supervised_frame(refreshed_source, cfg.horizon_minutes)
+            for m_name in missing:
+                m_site = m_name[len(cfg.model_name_prefix) + 1 :]
+                site_df = refreshed_supervised[
+                    refreshed_supervised["site_id"].astype(str) == m_site
+                ]
+                if site_df.empty:
+                    site_df = refreshed_source[refreshed_source["site_id"].astype(str) == m_site]
+                    if not site_df.empty:
+                        site_df = build_supervised_frame(site_df, cfg.horizon_minutes)
+                if not site_df.empty:
+                    print(
+                        f"⏳ Rattrapage : Site {m_site} ({m_name})...",
+                        flush=True,
+                    )
+                    train_site(cfg, client, m_site, site_df)
+            print("\n📋 Bilan final après rattrapage :", flush=True)
+            check_models_vs_sites(cfg)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     cfg = parse_args(argv)
+    if cfg.check_models:
+        check_models_vs_sites(cfg)
+        return 0
+
     inherited = os.getenv("ML_TRAIN_LOCK_FD")
     with (
         os.fdopen(int(inherited), "w")

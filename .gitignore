@@ -1,5 +1,5 @@
 # Environnement
-.env*
+.env.example
 *.env
 !.env.example
 

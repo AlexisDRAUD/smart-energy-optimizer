@@ -36,7 +36,7 @@ Un fichier `.env.vm.example` sera ajouté à la racine avec la branche de déplo
 git clone <le depot>
 cd smart-energy-optimizer
 
-cp .env.example .env
+cp .env.example.example .env.example
 ```
 
 Éditer le `.env` selon le tableau ci-dessus. Générer les deux secrets :
