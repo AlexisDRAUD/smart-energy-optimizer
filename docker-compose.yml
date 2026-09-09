@@ -6,6 +6,12 @@
 #   db  ->  migrate (schema Alembic, comptes, reprise d historique)
 #        ->  api, collector, etl  ->  web
 #
+# Les images se nomment par IMAGE_REGISTRY, IMAGE_TAG et IMAGE_PULL_POLICY.
+# Sans rien dans le .env, le comportement local ne change pas : migrate construit
+# l image partagee, les autres ne tirent rien, tout est tague local. Sur la VM, le
+# deploiement renseigne le registre, le tag du commit et la politique always, ce qui
+# permet de repartir d une image precise et donc de revenir en arriere.
+#
 # Deux images ici : backend et web. L image backend est lancee quatre fois avec
 # des commandes differentes, parce que l API, le collecteur et l ETL partagent la
 # meme base, le meme code et la meme cadence de livraison. Ils restent dans des
@@ -18,16 +24,16 @@
 # Voir docs/architecture.md et docs/configuration.md.
 
 x-backend: &backend
-  image: smart-energy-optimizer-backend:local
-  pull_policy: never
+  image: ${IMAGE_REGISTRY:-}smart-energy-optimizer-backend:${IMAGE_TAG:-local}
+  pull_policy: ${IMAGE_PULL_POLICY:-never}
   # Tout reglage qui peut differer entre le poste local et la VM passe par ici,
   # et par le .env. Un reglage absent de ce bloc n atteint jamais les conteneurs :
   # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
   # signale.
   environment: &backend-env
-    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}@db:5432/${POSTGRES_DB:-seo}
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
-    SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-EnerVisionDemo2026!}
+    SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:?SEED_USER_PASSWORD manquant, copiez .env.example en .env}
     ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
     REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
     # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
@@ -38,7 +44,7 @@ x-backend: &backend
     BACKFILL_DAYS: ${BACKFILL_DAYS:-7}
     ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
     ETL_BATCH_SIZE: ${ETL_BATCH_SIZE:-1000}
-    ETL_WINDOW_OVERLAP_MINUTES: ${ETL_WINDOW_OVERLAP_MINUTES:-30}
+    ETL_WINDOW_OVERLAP_MINUTES: ${ETL_WINDOW_OVERLAP_MINUTES:-2}
     PREDICTION_REFRESH_INTERVAL_SECONDS: ${PREDICTION_REFRESH_INTERVAL_SECONDS:-60}
 
 services:
@@ -46,7 +52,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-seo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_moi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}
       POSTGRES_DB: ${POSTGRES_DB:-seo}
     ports:
       - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
@@ -68,7 +74,7 @@ services:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
-    pull_policy: build
+    pull_policy: ${IMAGE_PULL_POLICY:-build}
     command: ["./scripts/prepare-database.sh"]
     environment:
       <<: *backend-env
@@ -101,7 +107,7 @@ services:
       context: ./services/web
       args:
         VITE_BACK_API_URL: ${VITE_BACK_API_URL:-}
-    image: smart-energy-optimizer-web:local
+    image: ${IMAGE_REGISTRY:-}smart-energy-optimizer-web:${IMAGE_TAG:-local}
     depends_on:
       api:
         condition: service_healthy
@@ -136,15 +142,16 @@ services:
     build:
       context: .
       dockerfile: services/ml/Dockerfile
-    image: smart-energy-optimizer-mlflow:local
+    image: ${IMAGE_REGISTRY:-}smart-energy-optimizer-mlflow:${IMAGE_TAG:-local}
+    pull_policy: ${IMAGE_PULL_POLICY:-build}
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:-change_moi}@db:5432/${POSTGRES_DB:-seo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}@db:5432/${POSTGRES_DB:-seo}
       MLFLOW_TRACKING_URI: http://127.0.0.1:5000
       ML_TRAIN_ON_START: ${ML_TRAIN_ON_START:-1}
       TRAIN_ARGS: ${TRAIN_ARGS:---holdout-minutes 120}
       MLFLOW_START_TIMEOUT_SECONDS: ${MLFLOW_START_TIMEOUT_SECONDS:-120}
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
       AWS_REGION: us-east-1
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     depends_on:
@@ -169,8 +176,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
     ports:
       - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -184,8 +191,8 @@ services:
       - minio
     entrypoint: /bin/sh -c
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
     command: >
       'set -eu;
       attempts=0;
