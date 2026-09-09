@@ -99,6 +99,58 @@ test('recent alerts include another accessible site regardless of the chart sele
     expect(within(alerts).getByRole('link', { name: 'Voir le détail des alertes' })).toHaveAttribute('href', '#/alertes')
 })
 
+test('site load card follows the selected site instead of showing the fleet load', async () => {
+    jest.mocked(getOverview).mockResolvedValue({
+        site_count: 2,
+        total_consumption_kw: 1400,
+        total_capacity_kw: 1900,
+        average_load_rate_percent: 73.68,
+        by_site: [
+            { site_id: 'LYO-01', consumption_kw: 800, capacity_kw: 1000, load_rate_percent: 80, measured_at: end },
+            { site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end },
+        ],
+        sites_without_valid_reading: [],
+        sites_without_valid_reading_count: 0,
+        incomplete: false,
+    })
+
+    const { rerender } = render(<DashboardPage />)
+    let card = (await screen.findByText('Charge du site')).closest('article')!
+    expect(card).toHaveTextContent('80 %')
+    expect(card).toHaveTextContent('Lyon')
+    expect(card).toHaveTextContent('800 kW sur 1 000 kW')
+    expect(card).not.toHaveTextContent('73,7 %')
+
+    jest.mocked(useFilters).mockReturnValue({ ...filters(), siteId: 'PAR-01' })
+    rerender(<DashboardPage />)
+
+    await waitFor(() => {
+        card = screen.getByText('Charge du site').closest('article')!
+        expect(card).toHaveTextContent('66,7 %')
+        expect(card).toHaveTextContent('Paris')
+        expect(card).toHaveTextContent('600 kW sur 900 kW')
+    })
+})
+
+test('site load is unavailable when the selected site has no exploitable reading', async () => {
+    jest.mocked(getOverview).mockResolvedValue({
+        site_count: 2,
+        total_consumption_kw: 600,
+        total_capacity_kw: 900,
+        average_load_rate_percent: 66.67,
+        by_site: [{ site_id: 'PAR-01', consumption_kw: 600, capacity_kw: 900, load_rate_percent: 66.67, measured_at: end }],
+        sites_without_valid_reading: ['LYO-01'],
+        sites_without_valid_reading_count: 1,
+        incomplete: true,
+    })
+
+    render(<DashboardPage />)
+
+    const card = (await screen.findByText('Charge du site')).closest('article')!
+    expect(card).toHaveTextContent('Indisponible')
+    expect(card).toHaveTextContent('Lyon · aucun relevé exploitable sur 1 000 kW')
+})
+
 test('shows each critical fleet alert once per browser tab', async () => {
     jest.mocked(getAlertsPage).mockResolvedValue({ items: [{
         id: 99,

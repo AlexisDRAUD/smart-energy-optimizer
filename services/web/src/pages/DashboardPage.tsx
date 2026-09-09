@@ -49,6 +49,7 @@ export function DashboardPage() {
     })
 
     const selectedSite = sites.find((site) => site.site_id === siteId)
+    const selectedSiteOverview = data?.overview.by_site.find((site) => site.site_id === siteId)
     const currentValue = data?.latest?.consumption_kwh ?? null
     const futurePredictions = data?.chart.future_predictions ?? []
     const prediction = futurePredictions[futurePredictions.length - 1]
@@ -121,9 +122,11 @@ export function DashboardPage() {
                             dot="orange"
                         />
                         <MetricCard
-                            label="Charge du parc"
-                            value={formatPercent(data.overview.average_load_rate_percent)}
-                            hint={`${formatPower(data.overview.total_consumption_kw)} sur ${formatPower(data.overview.total_capacity_kw)}`}
+                            label="Charge du site"
+                            value={selectedSiteOverview ? formatPercent(selectedSiteOverview.load_rate_percent) : 'Indisponible'}
+                            hint={selectedSiteOverview
+                                ? <>{selectedSite.site_name} · {formatPower(selectedSiteOverview.consumption_kw)} sur {formatPower(selectedSiteOverview.capacity_kw)}<br />{formatDateTime(selectedSiteOverview.measured_at)}</>
+                                : `${selectedSite.site_name} · aucun relevé exploitable sur ${formatPower(selectedSite.capacity_kw)}`}
                             dot="green"
                         />
                     </section>
