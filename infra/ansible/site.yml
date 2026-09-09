@@ -21,6 +21,10 @@
     - name: Paquets de base
       ansible.builtin.apt:
         name:
+          # Sans acl, Ansible ne sait pas donner ses fichiers temporaires a un
+          # compte non privilegie : chaque tache en become_user echoue sur un
+          # chmod invalide. C est le prerequis le moins evident de ce playbook.
+          - acl
           - ca-certificates
           - curl
           - git
@@ -127,6 +131,17 @@
         state: present
         update_cache: true
       when: install_docker | bool
+      tags: [docker]
+
+    # La VM de l ecole fournit le moteur mais pas le greffon compose, et son
+    # reseau refuse le depot officiel Docker. Le paquet de la distribution
+    # fournit la v2, seule version capable de lire ce compose : la v1 ne
+    # connait ni les conditions de demarrage entre services, ni pull_policy.
+    - name: Greffon compose depuis la distribution
+      ansible.builtin.apt:
+        name: docker-compose-v2
+        state: present
+      when: not (install_docker | bool)
       tags: [docker]
 
     # Plafonner les journaux des conteneurs. Sans cela le disque se remplit.
@@ -271,6 +286,16 @@
         owner: "{{ app_user }}"
         group: "{{ app_group }}"
         mode: "0750"
+      tags: [backup]
+
+    # Absent de certaines images minimales, et rien ne le cree avant nous.
+    - name: Repertoire des binaires locaux
+      ansible.builtin.file:
+        path: /usr/local/bin
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
       tags: [backup]
 
     - name: Script de sauvegarde

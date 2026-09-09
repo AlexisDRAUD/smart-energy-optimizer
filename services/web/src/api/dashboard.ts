@@ -2,8 +2,8 @@ import { apiRequest } from './client'
 import type { ApiOverview, ApiQuality, ApiSensorSite } from '../types/api'
 
 /** Consommation et taux de charge de tous les sites, en un seul appel. */
-export function getOverview() {
-    return apiRequest<ApiOverview>('/api/v1/overview')
+export function getOverview(signal?: AbortSignal) {
+    return apiRequest<ApiOverview>('/api/v1/overview', { signal })
 }
 
 /** Complétude quotidienne des relevés d'un site. */

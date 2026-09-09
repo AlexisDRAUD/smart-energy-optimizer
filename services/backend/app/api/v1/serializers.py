@@ -30,6 +30,7 @@ def alert_response(alert: Alert) -> dict[str, object]:
         "value": alert.value,
         "threshold_value": alert.threshold_value,
         "status": alert.status,
+        "origin": alert.origin,
         "acknowledged_at": utc_iso(alert.acknowledged_at),
     }
 

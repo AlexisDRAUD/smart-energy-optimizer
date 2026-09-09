@@ -169,6 +169,7 @@ class AlertResponse(ContractModel):
     value: float | None
     threshold_value: float | None
     status: Literal["open", "acknowledged", "closed"]
+    origin: Literal["internal", "source"]
     acknowledged_at: ISODateTime | None = Field(
         default=None, json_schema_extra={"format": "date-time"}
     )
@@ -179,6 +180,10 @@ class AlertsResponse(ContractModel):
     total: int
     limit: int
     offset: int
+
+
+class AlertAcknowledgementResponse(ContractModel):
+    acknowledged_count: int = Field(ge=0)
 
 
 class AlertSummaryResponse(ContractModel):
@@ -275,3 +280,69 @@ class UsersResponse(ContractModel):
     total: int
     limit: int
     offset: int
+
+
+class ChartCoverage(ContractModel):
+    expected_minutes: int = Field(ge=0)
+    received_minutes: int = Field(ge=0)
+    missing_minutes: int = Field(ge=0)
+    null_minutes: int = Field(ge=0)
+    valid_minutes: int = Field(ge=0)
+    percent: float = Field(ge=0, le=100)
+    first_at: ISODateTime | None
+    last_at: ISODateTime | None
+
+
+class ChartComparison(ContractModel):
+    target_at: ISODateTime
+    actual_kwh: float
+    predicted_kwh: float
+    deviation_percent: float | None
+    horizon_minutes: Literal[120]
+    model_version: str
+
+
+class ChartSamplingStats(ContractModel):
+    input_points: int = Field(ge=0)
+    output_points: int = Field(ge=0)
+    applied: bool
+
+
+class ChartReadingPoint(ReadingPoint):
+    segment_start: bool
+
+
+class ChartPredictionPoint(PredictionResponse):
+    segment_start: bool
+
+
+class ChartDownsampling(ContractModel):
+    algorithm: Literal["lttb"]
+    target_points_per_series: int = Field(ge=3)
+    readings: ChartSamplingStats
+    historical_predictions: ChartSamplingStats
+    future_predictions: ChartSamplingStats
+
+
+class ConsumptionChartResponse(ContractModel):
+    site_id: str
+    start: ISODateTime
+    end: ISODateTime
+    future_end: ISODateTime
+    unit: Literal["kWh"]
+    unit_basis: Literal["source_declared"]
+    measurement_interval_seconds: None
+    cadence_seconds: Literal[60]
+    horizon_minutes: Literal[120]
+    model_name: str
+    model_version: str
+    max_readings: int
+    max_predictions: int
+    readings: list[ChartReadingPoint]
+    historical_predictions: list[ChartPredictionPoint]
+    future_predictions: list[ChartPredictionPoint]
+    reading_coverage: ChartCoverage
+    prediction_coverage: ChartCoverage
+    future_coverage: ChartCoverage
+    downsampling: ChartDownsampling
+    last_evaluated: ChartComparison | None

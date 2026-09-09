@@ -22,13 +22,15 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models.quality import EtlRun
 from app.db.session import SessionLocal
+from app.etl.alerts import transform_alert_snapshot
 from app.etl.extract import (
     extract_from_raw_readings,
     extract_latest_sites,
     extract_sensor_snapshots,
+    extract_snapshots,
 )
 from app.etl.impute import refresh_profiles, repair_readings, repair_window_start
-from app.etl.load import load_readings, load_sensor_status, load_sites
+from app.etl.load import load_readings, load_sensor_status, load_sites, load_source_alerts
 from app.etl.quality import compute_daily_quality, days_touched
 from app.etl.transform import transform_readings
 
@@ -121,6 +123,36 @@ def load_sensor_directory(db: Session, window_start: datetime, window_end: datet
     )
 
 
+def load_alert_directory(db: Session, window_start: datetime, window_end: datetime) -> None:
+    """Materialize every source-alert snapshot in the ETL reception window."""
+    loaded = rejected = snapshot_count = 0
+    after_id = 0
+    while True:
+        snapshots = extract_snapshots(
+            db, "api_alerts", window_start, window_end, after_id, settings.etl_batch_size
+        )
+        if not snapshots:
+            break
+        latest_alerts = {}
+        for snapshot in snapshots:
+            alerts, invalid = transform_alert_snapshot(snapshot.payload)
+            rejected += invalid
+            for alert in alerts:
+                key = (alert.site_id, alert.type, alert.detected_at)
+                latest_alerts[key] = alert
+        loaded += load_source_alerts(db, list(latest_alerts.values()))
+        snapshot_count += len(snapshots)
+        after_id = snapshots[-1].id
+        if len(snapshots) < settings.etl_batch_size:
+            break
+    LOGGER.info(
+        "Alertes source: %d materialisee(s), %d rejetee(s), %d instantane(s)",
+        loaded,
+        rejected,
+        snapshot_count,
+    )
+
+
 def transform_window(
     db: Session, window_start: datetime, window_end: datetime
 ) -> tuple[PassCounts, set[date]]:
@@ -195,6 +227,7 @@ def run_once(since: datetime | None = None) -> int:
             window_start, window_end = compute_window(db, since)
             load_site_directory(db)
             load_sensor_directory(db, window_start, window_end)
+            load_alert_directory(db, window_start, window_end)
             counts, days = transform_window(db, window_start, window_end)
             # La reparation vient apres le chargement : une valeur nulle se
             # repare des que la mesure suivante est en base, donc au passage qui

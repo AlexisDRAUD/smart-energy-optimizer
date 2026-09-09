@@ -7,10 +7,9 @@ from sqlalchemy import text
 
 @pytest.fixture
 def storage():
-    url = os.environ.get(
-        "DATABASE_URL",
-        "postgresql+psycopg://seo:1234@127.0.0.1:5432/seo",
-    )
+    if not os.environ.get("TEST_DATABASE_URL"):
+        pytest.skip("PostgreSQL storage tests require an explicit TEST_DATABASE_URL.")
+    url = os.environ["DATABASE_URL"]
     s = PostgresStorage(url)
     with s.engine.begin() as conn:
         conn.execute(text("DELETE FROM raw_readings"))

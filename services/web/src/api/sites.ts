@@ -6,6 +6,6 @@ export async function getSites() {
     return response.items
 }
 
-export function getLatestReading(siteId: string) {
-    return apiRequest<ApiLatestReading>(`/api/v1/sites/${encodeURIComponent(siteId)}/latest`)
+export function getLatestReading(siteId: string, signal?: AbortSignal) {
+    return apiRequest<ApiLatestReading>(`/api/v1/sites/${encodeURIComponent(siteId)}/latest`, { signal })
 }
