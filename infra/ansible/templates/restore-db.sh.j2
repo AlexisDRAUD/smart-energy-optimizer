@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Restauration d une sauvegarde, ecrite par Ansible. Ne pas editer sur la VM.
+#
+# Une sauvegarde dont la restauration n a jamais ete essayee n est pas une
+# sauvegarde. Ce script existe pour que l essai soit possible en une commande.
+#
+#   restore-db.sh /var/backups/enervision/enervision-20260908-033000.sql.gz
+set -euo pipefail
+
+APP_DIR="{{ app_dir }}"
+ARCHIVE="${1:-}"
+
+if [ -z "${ARCHIVE}" ] || [ ! -s "${ARCHIVE}" ]; then
+  echo "Usage: $(basename "$0") <archive.sql.gz>" >&2
+  exit 2
+fi
+
+cd "${APP_DIR}"
+
+echo "Restauration de ${ARCHIVE}."
+echo "Les services applicatifs sont arretes le temps de l operation."
+read -r -p "Confirmer ? [oui/NON] " reponse
+[ "${reponse}" = "oui" ] || { echo "Abandon."; exit 1; }
+
+docker compose stop api collector etl mlflow
+gzip -dc "${ARCHIVE}" | docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose start api collector etl mlflow
+
+echo "Restauration terminee."
