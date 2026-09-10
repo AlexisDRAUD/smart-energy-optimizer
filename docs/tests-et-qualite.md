@@ -1,128 +1,96 @@
-# Tests et qualité du code
+# Tests et qualité
 
-## Lancer les tests
+Complète `ci.md`, qui décrit la chaîne. Ce document décrit les suites, les outils et ce qu'ils
+couvrent réellement.
 
-Les tests du backend ont besoin d'un vrai PostgreSQL. Ils créent et détruisent leur propre
-base, `seo_test`, à côté de la base de travail : il suffit que `db` tourne.
+## Les suites
 
-**Dans un conteneur**, sans rien installer :
+| Suite | Où | Combien | Ce qu'elle vérifie |
+|---|---|---|---|
+| Backend | `services/backend/tests/` | 28 fichiers, environ 164 tests | API, collecteur, ETL, imputation, qualité, prévision, superviseur |
+| Modèle | `services/ml/tests/` | 3 fichiers, environ 18 tests | pipeline d'entraînement et calcul des variables |
+| Front | `services/web/tests/` | 12 fichiers, environ 49 tests | rendu des pages, appels, états d'erreur, graphique |
+
+Les suites du service ML ne sont pas jouées par la chaîne d'intégration, elles se lancent à la main.
+
+## Le backend exige une vraie base
+
+La suite ne remplace pas PostgreSQL par un double. Elle recrée une base dédiée, joue les migrations
+Alembic, insère le jeu de données de test, puis supprime la base en fin de session. Une garde vérifie
+d'abord que l'URL visée est bien une base de test, pour qu'une variable mal réglée ne puisse pas
+effacer une base de travail.
+
+Le choix est volontaire. Une grande partie du comportement du projet vit dans le schéma :
+contraintes d'unicité qui rendent les écritures idempotentes, colonnes générées, contraintes de
+vérification sur les énumérations. Un double en mémoire validerait du code qui échouerait en base.
 
 ```bash
-docker compose up -d db
-docker compose run --rm --no-deps \
-  -e TEST_DATABASE_URL="postgresql+psycopg://seo:<mot de passe>@db:5432/seo_test" \
-  --entrypoint sh migrate -c "python -m pytest -q"
-```
-
-**Sur le poste**, après l'installation décrite dans `setup.md` :
-
-```bash
-docker compose up -d db
 cd services/backend
-JWT_SECRET_KEY=test-only-secret-with-at-least-32-characters \
-TEST_DATABASE_URL=postgresql+psycopg://seo:<mot de passe>@127.0.0.1:5432/seo_test \
-  ../../.venv/bin/python -m pytest -q
+pytest --cov=app --cov-report=term-missing
 ```
 
-Les migrations sont appliquées sur cette base neuve avant chaque session : une migration cassée
-est attrapée par la suite de tests, pas découverte par un coéquipier.
-
-**Le front** :
+## Le front
 
 ```bash
 cd services/web
-npm ci
-npm run test:coverage
+npm run lint          # eslint
+npm run typecheck     # tsc --noEmit sur le code
+npm run typecheck:test # tsc --noEmit sur les tests
+npm run test:coverage # jest
 ```
 
-## Couverture visée
+Jest avec jsdom et Testing Library. Les tests portent sur ce que l'utilisateur voit, pas sur l'état
+interne des composants : présence des valeurs, message de chargement, message d'erreur avec bouton
+de reprise, conservation des dernières données reçues quand un rafraîchissement échoue.
 
-| Zone | Cible | Pourquoi |
-|---|---|---|
-| Pipeline de données | environ 80 % des branches | c'est là que se cache la perte de données |
-| API, inférence, règles | environ 70 % | contrat exposé |
-| Dashboard | pas de seuil | le risque n'est pas là |
+## Qualité de code
 
-Un seuil unique pousse à écrire des tests inutiles sur le code d'affichage pour atteindre un
-chiffre.
+**Ruff** pour Python, configuré à la racine dans `pyproject.toml` : ligne à 100 caractères, cible
+3.12, et un ensemble de règles qui va au-delà du style, erreurs courantes, tri des imports,
+conventions de nommage, modernisation, pièges classiques, simplifications, chemins de fichiers, et
+un jeu de règles de sécurité. Les règles de sécurité sont désactivées dans les tests, où l'usage
+d'assertions est normal.
 
-## Familles de tests
+**ESLint et TypeScript** pour le front, en configuration plate, avec le mode strict de TypeScript.
 
-- **Unitaires.** Calcul des variables d'entrée, règles d'imputation, règles de recommandation,
-  calcul des seuils.
-- **Intégration.** Le collecteur écrit bien dans la couche brute, l'ETL est rejouable sans
-  créer de doublon, l'API rend bien ce que le contrat annonce.
-- **Qualité des données.** Contrôles sur les valeurs et les plages. **Ils ne bloquent pas le
-  pipeline**, ils marquent l'anomalie. Bloquer transformerait un problème de qualité en perte
-  de données.
-- **Résilience.** Injection de pannes : source injoignable, base indisponible, conteneur
-  arrêté.
-- **Non fonctionnels.** Temps de réponse de l'API sur une fenêtre longue, durée d'un passage
-  de l'ETL.
-
-## Outils de qualité
-
-| Outil | Ce qu'il fait | Où il tourne |
-|---|---|---|
-| ruff (lint) | erreurs réelles, imports morts, nommage, pièges, secrets en dur | poste, pre-commit, chaîne d'intégration |
-| ruff (format) | met en forme, une seule façon d'écrire pour toute l'équipe | idem |
-| pre-commit | lance les contrôles avant chaque commit | poste |
-| eslint, prettier, tsc | équivalent pour le front | poste et chaîne d'intégration |
-
-La configuration est dans `pyproject.toml` à la racine, un seul fichier pour tout le dépôt. Le
-linter donne donc le même verdict chez chacun et dans la chaîne d'intégration, sinon les
-demandes de fusion se transforment en discussions de virgules.
-
-## Installation, une fois par personne
+**Pre-commit** attrape avant le commit ce que la chaîne refuserait ensuite : ruff et son formateur,
+espaces de fin de ligne, fin de fichier, validité des YAML, taille des fichiers ajoutés, marqueurs de
+conflit non résolus, et refus d'une clé privée.
 
 ```bash
-pip install ruff pre-commit
-pre-commit install
+pip install pre-commit && pre-commit install
 ```
 
-À partir de là, un commit qui ne passe pas les contrôles est refusé localement, avant même
-d'arriver sur le dépôt.
+## Ce que les tests couvrent, et ce qu'ils ne couvrent pas
 
-## Commandes
+Trois familles sont bien couvertes et se démontrent. Les règles de validation et de rejet de l'ETL,
+ligne par ligne. Les propriétés d'idempotence, relire une fenêtre déjà traitée ne crée pas de
+doublon. Et les cas d'erreur de l'API, site inconnu, paramètres hors bornes, rôle insuffisant.
 
-```bash
-ruff check .                 # signale les problemes
-ruff check . --fix           # corrige ce qui se corrige tout seul
-ruff format .                # met en forme
-pre-commit run --all-files   # tout, sur tout le depot
-```
+Ce qui n'est pas couvert :
 
-Sans installation locale, la version exacte de la chaîne d'intégration :
+- **Pas de test de bout en bout.** Personne ne vérifie automatiquement qu'un utilisateur peut se
+  connecter et voir un graphique. Le premier scénario à écrire serait exactement celui-là, avec un
+  outil pilotant un navigateur, joué après le déploiement plutôt que dans la chaîne.
+- **Pas de test de charge.**
+- **Pas de seuil minimal de couverture.** La couverture est mesurée et publiée, aucune valeur
+  plancher ne fait échouer un job. Un seuil posé sans réflexion pousse à écrire des tests qui
+  couvrent sans vérifier, mais l'absence de plancher laisse la couverture dériver sans que personne
+  ne le voie.
+- **Pas d'analyse de complexité ni de duplication.** Ruff et ESLint ne les mesurent pas.
+- **Pas de test de propriété ni de test de mutation.**
 
-```bash
-docker run --rm -v "$PWD":/w -w /w python:3.12-alpine \
-  sh -c "pip install -q ruff==0.16.5 && ruff check . && ruff format --check ."
-```
+## Indicateurs suivis
 
-## Produire le rapport pour la soutenance
+Ceux qui sont produits automatiquement à chaque exécution de la chaîne :
 
-```bash
-ruff check . --output-format=json > rapport-qualite.json
-ruff check . --statistics
-pytest --cov=packages --cov=services --cov-report=html
-```
+| Indicateur | Où le lire |
+|---|---|
+| Couverture backend | artefact `backend-coverage`, `coverage.xml` |
+| Couverture front | artefact `web-coverage`, `lcov.info` |
+| Vulnérabilités par image et par sévérité | résumé du job et artefact `trivy-image-reports-<sha>` |
+| Durée de la chaîne | onglet Actions |
 
-Le rapport de couverture se lit dans `htmlcov/index.html`. Ces fichiers ne sont pas commités,
-ils sont produits à la demande.
-
-## Pourquoi ces règles
-
-Les familles activées couvrent les erreurs réelles, l'ordre des imports, le nommage, les
-tournures obsolètes, les pièges classiques et les motifs à risque de sécurité comme un secret
-écrit en dur. Le dépôt étant public, cette dernière famille n'est pas décorative.
-
-Une règle est désactivée : l'interdiction de `assert`, qui n'a pas de sens dans les tests.
-
-## Code modulaire
-
-Trois règles simples, vérifiables en relecture.
-
-- Une fonction fait une chose. Si son nom contient « et », elle en fait deux.
-- Le calcul et l'accès aux données sont séparés. Une fonction qui lit la base et calcule en
-  même temps ne se teste pas sans base.
-- Le calcul des variables du modèle vit dans `packages/features`, et rien d'autre n'y va.
+Ceux qui se relèvent à la main et qui manquent aujourd'hui : nombre de demandes de fusion ouvertes
+et âge de la plus ancienne, retard des branches en commits, délai entre l'ouverture d'une PR et sa
+fusion.

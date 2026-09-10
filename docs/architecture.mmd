@@ -1,63 +1,98 @@
-%% Smart Energy Optimizer - architecture de realisation - mis a jour le 07/09/2026
-%% En grise et en pointilles : ce qui est decide mais pas fait (modele, MLflow,
-%% canal d'alerte sortant, import des CSV).
+%% EnerVision - architecture de realisation - mis a jour le 10/09/2026
+%% Tout ce qui figure ici tourne. Les manques sont listes dans docs/architecture.md.
 %% A coller sur https://mermaid.live
 flowchart LR
-    CSV["Fichiers CSV 2023-2024<br/>fournis par le formateur<br/>import non fait"]
-    SRC["API de la source<br/>/readings (reprise unique)<br/>/current (temps reel)<br/>/sites et /sensors/status"]
+    SRC["API source (reseau ecole)<br/>/sites, /sites/{id}/current<br/>/sensors/status, /alerts<br/>/readings (reprise d historique)"]
 
     subgraph INGEST["Ingestion"]
-        BOOT["Reprise d'historique<br/>au premier demarrage<br/>BACKFILL_DAYS jours, garde anti-rejeu"]
-        POLL["Collecteur permanent<br/>toutes les minutes"]
+        BOOT["Reprise d historique<br/>au premier demarrage<br/>fenetres de 1000 min<br/>garde de couverture"]
+        POLL["Collecteur<br/>toutes les 60 s"]
     end
 
-    subgraph DB["PostgreSQL"]
-        RAW[("raw_readings<br/>JSONB, insertion seulement")]
-        SNAP[("raw_snapshots<br/>referentiels sites et capteurs")]
-        CLEAN[("Couche transformee<br/>sites, readings, sensor_status")]
-        RUNS[("etl_runs<br/>avancement de l'ETL")]
+    subgraph BRONZE["Bronze - brut, insertion seule"]
+        RAW[("raw_readings<br/>JSONB + colonnes generees")]
+        SNAP[("raw_snapshots<br/>sites, capteurs, alertes")]
     end
 
-    TR["Job ETL Python<br/>toutes les minutes<br/>lecture du brut : fenetre 2 min<br/>reparation : fenetre 30 min"]
+    ETL["ETL<br/>toutes les 60 s<br/>fenetre de reception + 2 min<br/>lots de 1000 lignes"]
 
-    subgraph ML["Machine learning"]
-        FEAT["Paquet commun<br/>calcul des variables"]
-        TRAIN["Entrainement<br/>gradient boosting"]
-        MLF["MLflow<br/>suivi + registre"]
+    subgraph SILVER["Silver - valide"]
+        SITES[("sites")]
+        READ[("readings<br/>+ imputation")]
+        SENS[("sensor_status")]
     end
 
-    BACK["Backend FastAPI<br/>REST + JWT<br/>boucle de prediction H+2<br/>toutes les minutes"]
-    FRONT["Front React<br/>servi par nginx"]
-    NOTIF["Canal sortant<br/>hors perimetre"]
-    CI["CI/CD GitHub Actions<br/>lint, tests, scan Trivy, publication"]
+    subgraph GOLD["Gold - exploitable"]
+        QUAL[("data_quality_daily")]
+        PRED[("predictions<br/>erreur absolue generee")]
+        ALERT[("alerts")]
+    end
 
-    CSV -.-> BOOT
+    RUNS[("etl_runs<br/>tracabilite des passages")]
+
+    subgraph MLBLOC["Apprentissage"]
+        FEAT["packages/features<br/>variables partagees"]
+        TRAIN["Entrainement<br/>1 modele par site<br/>RandomForest / ExtraTrees"]
+        MLF["Serveur MLflow<br/>suivi SQLite<br/>registre + alias production"]
+        MINIO[("MinIO<br/>artefacts S3")]
+    end
+
+    WORKER["Worker de prevision<br/>toutes les 60 s<br/>H+2, notation a echeance"]
+    SUP["Superviseur<br/>toutes les 300 s<br/>decide et journalise"]
+
+    API["API FastAPI<br/>JWT + roles<br/>agregats calcules a la volee"]
+    WEB["Front React<br/>servi par nginx<br/>proxy /api"]
+    USER["Navigateur<br/>port 80 de la VM"]
+
+    subgraph CICD["Chaine de livraison"]
+        GHA["GitHub Actions<br/>lint, tests, Trivy"]
+        GHCR[("GHCR<br/>tag SHA + tag branche")]
+        RUNNER["Runner auto-heberge<br/>sur la VM"]
+        ANS["Playbook Ansible<br/>configuration + deploiement"]
+    end
+
     SRC --> BOOT
     SRC --> POLL
     BOOT --> RAW
-    BOOT --> SNAP
     POLL --> RAW
     POLL --> SNAP
-    RAW --> TR
-    SNAP --> TR
-    RUNS --> TR
-    TR --> CLEAN
-    TR --> RUNS
-    CLEAN -.-> TRAIN
-    FEAT -.-> TRAIN
-    FEAT --> BACK
-    TRAIN -.-> MLF
-    MLF -.-> BACK
-    CLEAN --> BACK
-    BACK --> FRONT
-    BACK -.-> NOTIF
-    CI -.-> TR
-    CI -.-> BACK
-    CI -.-> FRONT
 
-    classDef store fill:#eef4ff,stroke:#4a6fa5,color:#12203a
-    classDef later fill:#f4f4f6,stroke:#a8adb7,color:#5a6472,stroke-dasharray:4 3
-    classDef proc fill:#ffffff,stroke:#5a6472,color:#12203a
-    class RAW,SNAP,CLEAN,RUNS store
-    class BOOT,POLL,TR,FEAT,BACK,FRONT,CI,SRC proc
-    class TRAIN,MLF,NOTIF,CSV later
+    RAW --> ETL
+    SNAP --> ETL
+    ETL --> SITES
+    ETL --> READ
+    ETL --> SENS
+    ETL --> QUAL
+    ETL --> ALERT
+    ETL --> RUNS
+
+    READ --> FEAT
+    FEAT --> TRAIN
+    TRAIN --> MLF
+    MLF --> MINIO
+
+    MLF --> WORKER
+    FEAT --> WORKER
+    READ --> WORKER
+    WORKER --> PRED
+    WORKER --> ALERT
+    PRED --> SUP
+    MLF --> SUP
+
+    SITES --> API
+    READ --> API
+    QUAL --> API
+    PRED --> API
+    ALERT --> API
+    SENS --> API
+    RUNS --> API
+
+    API --> WEB
+    WEB --> USER
+
+    GHA --> GHCR
+    GHCR --> ANS
+    GHA --> RUNNER
+    RUNNER --> ANS
+    ANS --> API
+    ANS --> WEB

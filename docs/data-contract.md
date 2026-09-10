@@ -117,7 +117,7 @@ Insertion seulement : ni `UPDATE` ni `DELETE` sur cette table.
 
 Cette règle est aujourd'hui tenue **par le code et non par les droits**. Le projet n'utilise
 qu'un seul rôle PostgreSQL, propriétaire de tout. Le passage à des rôles au moindre privilège
-reste à faire, voir `security.md`.
+reste à faire, voir `rapport-securite.md`.
 
 Aucune colonne ne marque les lignes déja transformées, et c'est délibéré. Une telle marque
 obligerait l'ETL à écrire dans une table de l'étage 1, et rejouer une période imposerait
@@ -191,8 +191,8 @@ doublon.
 la même forme : l'historique donne des minutes pleines, l'instantané rend l'heure courante à la
 microseconde. Sans cet alignement les deux origines forment deux séries décalées, la cadence
 n'est jamais exactement d'une minute, et tout ce qui en dépend cesse de fonctionner : la
-réparation des valeurs nulles, le backtest de l'ADR du 04/09, et les 1440 points attendus par
-jour de `data_quality_daily`. Le brut garde l'horodatage exact, rien n'est perdu.
+réparation des valeurs nulles, la comparaison des méthodes d'imputation, et les 1440 points
+attendus par jour de `data_quality_daily`. Le brut garde l'horodatage exact, rien n'est perdu.
 
 `data_quality` et `null_reasons` sont contraints aux valeurs de la source. Une valeur inconnue
 qui apparait est un changement de la source, elle doit faire échouer bruyamment plutot que
@@ -278,9 +278,13 @@ N'y va pas : le calcul des variables d'entrée du modèle, il est dans `packages
 
 ## Etage 3. Modele
 
-Lit `readings` et `sites`. **N'écrit rien en base.** Il produit un artefact versionné dans
-MLflow, pas des lignes. Le code qui sert les prédictions est dans l'API, c'est donc l'API qui
-enregistre ce qui a été prédit.
+L'entraînement lit `readings` et `sites` et **n'écrit rien en base**. Il produit un artefact
+versionné dans MLflow, pas des lignes.
+
+Le service est ailleurs : le worker de prévision charge le modèle du site depuis le registre
+MLflow par son alias `production` et écrit dans `predictions`. S'il ne trouve pas de modèle, il
+n'écrit rien du tout : il n'existe aucun repli statistique dans ce chemin. Une ligne de
+`predictions` porte donc toujours le nom et la version du modèle qui l'a produite.
 
 Cible : consommation en kWh a **deux heures**. L'horizon vient du temps qu'il faut a un
 exploitant pour reperer le risque, decider, prevenir et agir. La colonne `horizon_minutes` de
@@ -290,9 +294,15 @@ configuration et pas une migration.
 Variables d'entrée : toutes calculées par `packages/features`, jamais ailleurs. Aucune n'est
 stockée en base, elles se recalculent depuis `readings`.
 
-## Etage 4. API
+## Etage 4. Tables de service
 
-Le seul composant qui écrit les tables de service, et le seul que le front interroge.
+Le seul étage que le front interroge. Trois composants y écrivent, et un seul les lit :
+
+| Table | Qui écrit |
+|---|---|
+| `users` | l'API, plus la création des comptes au premier démarrage |
+| `predictions` | le worker de prévision, qui écrit la prévision puis la note à échéance |
+| `alerts` | l'ETL pour celles de la source, le worker de prévision pour l'alerte d'anticipation, l'API pour l'acquittement |
 
 ### `users`
 
@@ -338,7 +348,11 @@ ne doit pas créer une seconde prédiction pour le meme instant.
 
 ### `alerts`
 
-Les alertes émises localement ont l'origine `internal`. Le collecteur conserve la réponse de
+Les alertes émises localement ont l'origine `internal`. Une seule règle en produit aujourd'hui,
+celle du type `forecast` : le worker de prévision ouvre une alerte quand la consommation prévue
+monte plus vite qu'un seuil exprimé en pourcentage par heure, avec une sévérité croissante selon le
+dépassement et une référence minimale en dessous de laquelle le rapport n'a pas de sens. Elle est
+écrite dans la transaction du passage, avec la prévision qui l'a déclenchée. Le collecteur conserve la réponse de
 la source dans `raw_snapshots`, puis l'ETL valide chaque objet et le matérialise avec l'origine
 `source`. Une alerte source mal formée est rejetée et journalisée sans bloquer les autres
 alertes ni les mesures du passage. Le rejeu est idempotent et ne retire jamais un acquittement

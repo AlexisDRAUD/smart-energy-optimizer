@@ -46,6 +46,18 @@ Trois rôles, dans `users.role`. `viewer` lit tout. `operator` lit et acquitte l
 `admin` ajoute la gestion des comptes. Une route qui modifie quelque chose annonce le rôle
 qu'elle exige.
 
+## Comptes
+
+| Route | Methode | Role |
+|---|---|---|
+| `/api/v1/users` | GET | liste les comptes, `admin` |
+| `/api/v1/users` | POST | cree un compte, `admin` |
+| `/api/v1/users/{id}` | PATCH | modifie role, activation ou mot de passe, `admin` |
+
+Le mot de passe n'est jamais rendu, ni en clair ni en empreinte. Un compte se desactive
+plutot que de se supprimer, pour que les acquittements d'alertes qui le referencent restent
+lisibles.
+
 ## Donnees
 
 ### Graphique de comparaison (valeurs natives)
@@ -239,7 +251,8 @@ la même période. Les trois côte a côte, sinon le chiffre du modèle ne veut 
 |---|---|---|
 | `/api/v1/alerts` | GET | les alertes filtrées |
 | `/api/v1/alerts/summary` | GET | les compteurs et la répartition par jour |
-| `/api/v1/alerts/{id}/acknowledge` | POST | acquitte une alerte, rôle `operator` |
+| `/api/v1/alerts/{id}/acknowledge` | POST | acquitte une alerte, rôle `operator` ou `admin` |
+| `/api/v1/alerts/acknowledge-all-critical` | POST | acquitte d'un coup toutes les alertes critiques ouvertes, rôle `operator` ou `admin` |
 
 `alerts` prend `site_id`, `severity`, `status`, `type`, `start`, `end`, `limit`, `offset`. Par
 défaut, les alertes ouvertes des sept derniers jours, les plus récentes d'abord.

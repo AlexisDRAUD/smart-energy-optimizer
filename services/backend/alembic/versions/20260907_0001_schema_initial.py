@@ -118,7 +118,7 @@ def _create_stage_2_transformed() -> None:
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
-        # Profil d imputation, decide par le backtest de l ADR du 04/09 et
+        # Profil d imputation, decide par la comparaison des methodes et
         # recalcule periodiquement par l ETL. Il choisit la methode de
         # reparation : interpolation pour un site variable, report pour un site
         # stable, aucune reparation tant qu il vaut unknown ou NULL. C est ce

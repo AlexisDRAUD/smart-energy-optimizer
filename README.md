@@ -1,89 +1,74 @@
-# Smart Energy Optimizer
+# EnerVision, Smart Energy Optimizer
 
-Plateforme de collecte, d'analyse et de prevision de la consommation electrique de 7 sites.
-Projet EnerVision, promotion EADL 2025, groupe 1.
+Plateforme de suivi et de prévision de la consommation électrique d'un parc de sites. Elle collecte
+les mesures d'une API source à la minute, les valide, les stocke par étages, en tire des indicateurs
+de qualité, prévoit la consommation à deux heures par un modèle entraîné par site, et présente le
+tout dans un dashboard.
 
-## Ce que fait le produit
+Projet de formation EADL, RNCP39765.
 
-- Collecte une mesure par minute et par site depuis l'API de la source.
-- Stocke la donnee brute sans la transformer, puis produit une couche transformee exploitable.
-- Repare les courtes valeurs manquantes par interpolation, en gardant la valeur d'origine.
-- Predit la consommation et publie la prediction.
-- Leve des alertes sur les depassements de seuil.
+## L'application déployée
 
-## Demarrer
+`http://10.138.200.30`, sur une VM du Proxmox de l'école. Le déploiement est automatique à chaque
+fusion dans `main`, voir `docs/deploiement.md`.
+
+## Démarrer sur un poste
 
 ```bash
-cp .env.example.example .env.example
-# remplir POSTGRES_PASSWORD et JWT_SECRET_KEY, verifier SOURCE_API_BASE_URL
-docker compose up
+cp .env.example .env
+# renseigner au minimum POSTGRES_PASSWORD, JWT_SECRET_KEY, SEED_USER_PASSWORD,
+# MINIO_ROOT_USER, MINIO_ROOT_PASSWORD et SOURCE_API_BASE_URL
+docker compose up -d
 ```
 
-Le detail est dans `docs/setup.md`.
+Le dashboard répond sur `http://localhost`, l'API sur `http://localhost:8080/docs`. Le premier
+démarrage joue les migrations, crée les comptes et reprend l'historique, il prend donc plus de temps
+que les suivants. Détail dans `docs/setup.md`.
 
-Les services demarrent dans cet ordre :
+## Ce qui tourne
 
-1. `db`, PostgreSQL 16, sur un volume vide au premier lancement.
-2. `migrate`, qui applique les migrations Alembic, cree les comptes, reprend l'historique de
-   la source, puis s'arrete.
-3. `api`, `collector`, `etl` et `supervisor`, qui attendent que `migrate` se termine sans
-   erreur.
-4. `web`, le dashboard, qui attend que l'API soit saine.
+Neuf conteneurs. Cinq partagent la même image backend avec des commandes différentes.
 
-`migrate`, `api`, `collector`, `etl` et `supervisor` utilisent la meme image backend avec des
-commandes differentes. `supervisor` surveille l'erreur du modele en production et decide des
-reentrainements, voir `docs/ml-supervision.md`.
+| | |
+|---|---|
+| `db` | PostgreSQL 16 |
+| `migrate` | migrations, comptes, reprise d'historique, puis s'arrête |
+| `api` | API REST, authentification, agrégats |
+| `web` | nginx, sert le front et relaie `/api/` |
+| `collector` | interroge la source toutes les 60 s |
+| `etl` | transforme le brut toutes les 60 s |
+| `model` | écrit les prévisions toutes les 60 s |
+| `supervisor` | surveille l'erreur du modèle toutes les 300 s |
+| `mlflow` + `minio` | suivi des entraînements et stockage des artefacts |
 
-Comptez une dizaine de secondes pour la reprise d'historique, puis une trentaine pour la
-premiere transformation, avant que le dashboard affiche quelque chose. Le dashboard repond sur
-`http://localhost`, l'API sur `http://localhost:8080`.
+## D'où viennent les données
 
-## D'ou viennent les donnees
+D'une API fournie par le formateur, sur le réseau de l'école. Deux usages distincts : une reprise
+d'historique au premier démarrage, puis une lecture de l'instant présent toutes les minutes. Les
+référentiels, l'état des capteurs et les alertes sont collectés de la même façon.
 
-**Aucune donnee n'est inventee au demarrage.** Les sites, les mesures, l'etat des capteurs, les
-predictions et les alertes viennent de la chaine elle-meme : le collecteur interroge la source,
-l'ETL transforme, l'API calcule. La base est vide au premier `docker compose up`, puis se
-remplit toute seule.
-
-La seule chose inseree au demarrage, ce sont les comptes, parce que rien d'autre ne les cree.
-Ils portent le mot de passe de `SEED_USER_PASSWORD`, `EnerVisionDemo2026!` par defaut :
-
-| Nom | E-mail | Role |
-|---|---|---|
-| Camille Martin | `camille.martin@enervision.demo` | `admin` |
-| Lucas Bernard | `lucas.bernard@enervision.demo` | `operator` |
-| Marc Legrand | `marc.legrand@enervision.demo` | `viewer` |
-
-Le schema n'existe que dans `services/backend/alembic/versions/`. Aucun fichier SQL n'est joue
-par l'image PostgreSQL, et personne ne cree de table a la main.
+Rien n'est inventé. Aucune donnée de démonstration n'est insérée au démarrage, et l'interface
+n'affiche que ce que l'API renvoie.
 
 ## Documentation
 
-Tout est dans `docs/`.
+Tout est dans [`docs/`](docs/), avec un index qui indique quel document répond à quel livrable :
+[`docs/README.md`](docs/README.md).
 
-**Pour demarrer**
+Les entrées les plus utiles pour commencer :
 
-- `setup.md` : installer et travailler au quotidien. A lire en premier.
-- `configuration.md` : toutes les variables du `.env`, ce qu'elles font et ce qu'elles coutent.
-- `runbook.md` : verifier que la chaine tourne, amorcer, rejouer, diagnostiquer une panne.
+- [`docs/architecture.md`](docs/architecture.md), la vue d'ensemble
+- [`docs/setup.md`](docs/setup.md), installer et lancer
+- [`docs/runbook.md`](docs/runbook.md), exploiter et diagnostiquer
+- [`docs/rapport-securite.md`](docs/rapport-securite.md), ce qui est protégé et ce qui ne l'est pas
 
-**Les contrats, ils font foi**
+## Organisation du dépôt
 
-- `data-contract.md` : les tables, qui ecrit quoi, ce qui ne s'y met pas.
-- `api-contract.md` : les routes, l'authentification, les codes de reponse.
-
-**Comprendre et contribuer**
-
-- `architecture.md` : les composants, le flux, la cadence, le stockage, la structure du depot.
-- `tests-et-qualite.md` : lancer les tests, les outils, les regles.
-- `ci.md` : la chaine d'integration.
-- `security.md` : ce qui est protege, et ce qui ne l'est pas encore.
-
-**Le reste**
-
-- `deploiement.md` : la VM de l'ecole. Prevu, pas encore fait.
-- `ml.md` : le modele. Hors de ce lot.
-- `ml-supervision.md` : le superviseur du modele, ses regles et ses decisions.
-- `adr/` : les decisions structurantes et leurs consequences.
-
-Les regles de contribution sont dans `CONTRIBUTING.md`.
+```
+services/backend   API, collecteur, ETL, worker de prevision, superviseur
+services/web       front React
+services/ml        entrainement et serveur MLflow
+packages/features  calcul des variables du modele, partage entrainement et service
+infra/ansible      infrastructure comme code
+docs/              documentation
+```

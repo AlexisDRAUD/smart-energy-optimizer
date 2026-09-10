@@ -45,7 +45,7 @@ def to_minute(instant: datetime) -> datetime:
     microseconde. Sans alignement, les deux origines forment deux series
     decalees, la cadence n est jamais exactement d une minute, et tout ce qui en
     depend cesse de fonctionner : la reparation des valeurs nulles, le backtest
-    de l ADR, et les 1440 points attendus par jour de data_quality_daily.
+    de la reparation, et les 1440 points attendus par jour de data_quality_daily.
 
     Le brut garde l horodatage exact : rien n est perdu, tout reste rejouable.
     """

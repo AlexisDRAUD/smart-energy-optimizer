@@ -1,108 +1,123 @@
-# Chaine d'integration
+# Chaîne d'intégration et de déploiement
 
-Le fichier unique `.github/workflows/ci.yml` decrit toute la chaine. Il tourne sur
-`push` et `pull_request` vers `main` et `dev`. Aucune etape ne se declenche
-ailleurs : une branche de travail ne consomme des minutes qu'au moment de la
-demande de fusion.
+Livrable EC03. Décrit la chaîne telle qu'elle est dans `.github/workflows/`.
 
-Deux versions d'outils sont figees en haut du fichier pour les jobs de qualite :
-`PYTHON_VERSION` (3.12) et `NODE_VERSION` (24). Les images Docker gardent leurs
-propres versions de base dans chaque `Dockerfile` et sont validees separement par
-Trivy.
+Trois fichiers de workflow existent. `ci.yml` porte l'intégration continue et le déploiement.
+`train.yml` et `mlflow_pipeline.yml` concernent l'entraînement, ils sont décrits dans `ml.md`.
 
-## Les jobs
+## Déclenchement
 
-| Job | Depend de | Ce qu'il fait | Ou |
-|---|---|---|---|
-| `backend-lint` | rien | `ruff check .` puis `ruff format --check .` sur **tout le depot** | racine |
-| `backend-test` | `backend-lint` | `pytest` avec couverture, contre un vrai PostgreSQL | `services/backend` |
-| `web-lint` | rien | `npm run lint` (eslint) puis `npm run typecheck` (`tsc --noEmit`) | `services/web` |
-| `web-test` | `web-lint` | `npm run typecheck:test` puis Jest avec couverture | `services/web` |
-| `docker-security` | `backend-test`, `web-test` | construit et scanne les images backend et web avec Trivy | runner Docker |
-| `docker-publish` | `docker-security` | publie dans GHCR les images deja scannees, uniquement sur un push vers `dev` | GHCR |
+`ci.yml` tourne sur `push` et sur `pull_request` vers `main` et `dev`. Aucune étape ne se déclenche
+ailleurs : une branche de travail ne consomme des minutes qu'au moment de la demande de fusion.
 
-Les deux domaines avancent en parallele. A l'interieur d'un domaine, les tests
-attendent le lint : inutile de reserver un PostgreSQL ou de reinstaller les
-dependances npm pour un code que le linter refuse deja.
+Deux versions d'outils sont figées en tête de fichier pour les jobs de qualité, `PYTHON_VERSION`
+à 3.12 et `NODE_VERSION` à 24. Les images gardent leurs propres versions de base dans leurs
+`Dockerfile` et sont contrôlées séparément par Trivy.
+
+## Les sept jobs
+
+| Job | Dépend de | Quand | Où | Ce qu'il fait |
+|---|---|---|---|---|
+| `backend-lint` | rien | toujours | ubuntu-latest | `ruff check .` puis `ruff format --check .` sur tout le dépôt |
+| `backend-test` | `backend-lint` | toujours | ubuntu-latest | `pytest` avec couverture, contre un vrai PostgreSQL 16 |
+| `web-lint` | rien | toujours | ubuntu-latest | `eslint` puis `tsc --noEmit` |
+| `web-test` | `web-lint` | toujours | ubuntu-latest | typage des tests puis Jest avec couverture |
+| `docker-security` | `backend-test`, `web-test` | PR, ou push sur `dev` ou `main` | ubuntu-latest | construit et scanne les trois images avec Trivy |
+| `docker-publish` | `docker-security` | push sur `dev` ou `main` | ubuntu-latest | publie dans GHCR les images déjà scannées |
+| `deploy` | `docker-publish` | push sur `main` seulement | runner auto-hébergé | rejoue le playbook Ansible sur la VM |
 
 ```
-backend-lint ──> backend-test
-                            ├──> docker-security ──> docker-publish (`dev` seulement)
-web-lint     ──> web-test
+backend-lint ──> backend-test ──┐
+                                ├──> docker-security ──> docker-publish ──> deploy (main)
+web-lint     ──> web-test    ───┘
 ```
 
-## Images Docker et Trivy
+Les deux domaines avancent en parallèle. À l'intérieur d'un domaine, les tests attendent le lint :
+inutile de réserver un PostgreSQL ou de réinstaller les dépendances npm pour un code que le linter
+refuse déjà.
 
-`docker-security` s'execute pour les pull requests vers `main` ou `dev`, ainsi
-que pour les push vers `dev`. Il construit localement les images backend et web,
-puis Trivy analyse leurs paquets systeme et leurs bibliotheques. Le job ne recoit
-que la permission `contents: read` et ne se connecte a aucun registre.
+## Analyse de vulnérabilités
 
-Le scan est limite aux severites `HIGH` et `CRITICAL`. Les deux niveaux sont
-affiches dans les logs et dans le resume du job. La presence d'une vulnerabilite
-`HIGH` est informative ; une ou plusieurs vulnerabilites `CRITICAL` font echouer
-le job. Les vulnerabilites sans correctif disponible restent prises en compte.
+`docker-security` construit localement les trois images, backend, web et mlflow, taguées par
+l'empreinte du commit, puis Trivy analyse leurs paquets système et leurs bibliothèques. Le job ne
+reçoit que `contents: read` et ne se connecte à aucun registre.
 
-Sur un push vers `dev`, les images qui ont passe ce controle sont exportees dans
-un artefact intermediaire conserve un jour. `docker-publish` recharge exactement
-ces images, obtient seul la permission `packages: write`, se connecte a GHCR,
-puis publie les tags immuable `<sha>` et mutable `dev`. Une image refusee par la
-politique Trivy ne peut donc pas etre publiee.
+Paramètres identiques pour les trois : sévérités `HIGH` et `CRITICAL`, vulnérabilités sans
+correctif comprises (`ignore-unfixed: false`), sortie JSON. L'action est épinglée par empreinte de
+commit et non par étiquette, une étiquette pouvant être redéplacée sur un autre code.
 
-L'action Trivy est figee par son empreinte de commit, avec le commentaire de
-version `v0.36.0`. Aucun resultat SARIF n'est envoye a GitHub Code Scanning : le
-pipeline ne depend ainsi ni de la permission `security-events: write`, ni de
-l'activation de cette fonctionnalite sur le depot.
+Trois étapes exploitent ces rapports. Une validation `jq` vérifie que chaque fichier a bien la
+structure attendue et échoue sinon, ce qui empêche un scan raté de passer pour un scan propre. Un
+résumé affiche les compteurs par image dans le récapitulatif du job. Les rapports sont publiés en
+artefact `trivy-image-reports-<sha>`, conservés trente jours, et constituent l'annexe factuelle du
+rapport de sécurisation.
 
-## backend-test et la base
+**La politique bloquante ne porte que sur `backend` et `web`.** Une seule vulnérabilité `CRITICAL`
+sur l'une des deux fait échouer le job. L'image mlflow est scannée et son rapport publié, mais elle
+ne bloque pas : son serveur n'écoute que sur l'adresse locale de la VM et sa pile scientifique
+remonte des vulnérabilités sans correctif disponible. La décision est commentée dans le workflow,
+avec sa condition de levée, lire le premier rapport et écrire les exceptions.
 
-La suite exige un vrai PostgreSQL, pas un double : `conftest.py` recree une base
-de test, joue les migrations Alembic puis insere le jeu de donnees de test. Le
-job lance donc un service `postgres:16` a cote du runner.
+## Publication
 
-Les identifiants viennent des **secrets de depot**, pas du fichier : il faut que
-`POSTGRES_USER`, `POSTGRES_PASSWORD` et `POSTGRES_DB` soient definis dans les
-reglages du depot GitHub. Le test se connecte a
-`…@127.0.0.1:5432/<POSTGRES_DB>_test` via la variable `TEST_DATABASE_URL`.
+Sur un push vers `dev` ou `main`, les images qui ont passé le contrôle sont exportées en artefact
+intermédiaire conservé un jour. `docker-publish` recharge **exactement ces images**, obtient seul la
+permission `packages: write`, se connecte à GHCR et publie. Une image refusée par la politique Trivy
+ne peut donc pas être publiée.
 
-Le contexte `secrets` n'est pas autorise dans le champ `options` d'un service :
-la sonde de sante est un `pg_isready` sans argument, qui suffit a savoir que le
-serveur accepte les connexions.
+Deux étiquettes par image :
 
-## web-test et le typage
+- l'empreinte du commit, immuable, qui sert à figer une version et à revenir en arrière,
+- le nom de la branche, mobile, que la VM suit.
 
-Le `tsconfig.json` du front ne couvre que `src`. Les tests ont leur propre
-`tsconfig.test.json` (types `jest` inclus), verifie a part par
-`npm run typecheck:test`. Jest ne fait pas de controle de types : sans cette
-etape, une erreur de typage dans un test passerait la chaine.
+Comme une étiquette mobile ne dit pas quel commit tourne, les trois images portent deux labels OCI,
+`org.opencontainers.image.revision` et `org.opencontainers.image.source`. Un `docker inspect` rend
+donc l'empreinte exacte du code en service :
 
-Jest transforme le TypeScript avec `babel-jest` et une config babel inline, pour
-ne pas heriter du babel qu'utilise Vite au build. Voir les commentaires de
-`services/web/jest.config.cjs`.
+```bash
+docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+  ghcr.io/alexisdraud/smart-energy-optimizer-backend:main
+```
 
-## Artefacts
+## Déploiement
 
-| Artefact | Contenu | Produit par |
-|---|---|---|
-| `backend-coverage` | `services/backend/coverage.xml` (Cobertura) | `backend-test` |
-| `web-coverage` | `services/web/coverage/lcov.info` | `web-test` |
-| `trivy-image-reports-<sha>` | rapports JSON `backend.json` et `web.json`, conserves 30 jours | `docker-security` |
-| `scanned-docker-images-<sha>` | images validees a transmettre au job de publication, conservees 1 jour | `docker-security` sur `dev` |
+Le job `deploy` ne tourne que sur un push vers `main`, sur le runner auto-hébergé installé sur la
+VM. GitHub n'entre jamais sur la machine, c'est le runner qui sort. Aucune clé SSH n'est confiée au
+dépôt et la connexion Ansible est locale.
 
-Ils sont joints au run, pas commites. On les recupere depuis la page du run pour
-la soutenance ou pour un outil de couverture. Pour consulter un rapport Trivy,
-ouvrir le run GitHub Actions, descendre jusqu'a la section **Artifacts**, puis
-telecharger `trivy-image-reports-<sha>`. Le resume `Trivy image scan` donne les
-comptages sans telechargement.
+Étapes, dans l'ordre :
 
-## Cache
+1. Récupération du dépôt au commit qui a déclenché l'exécution.
+2. Écriture du secret de dépôt `PROD_ENV` dans un fichier temporaire, avec `umask 077` puisque le
+   répertoire de travail du runner est sur la VM. Le job échoue tout de suite, avec un message
+   explicite, si le secret est vide.
+3. Écriture d'un inventaire Ansible d'une ligne, `localhost` en connexion locale.
+4. Premier passage du playbook, `--skip-tags deploy,runner` : comptes, Docker, pare-feu,
+   arborescence, dépôt à jour, fichier d'environnement.
+5. Authentification à GHCR **sous le compte de service**, puisqu'une authentification vaut pour
+   l'utilisateur qui la fait et que le compose tourne sous ce compte.
+6. Second passage du playbook, `--tags deploy` : tirage des images et démarrage de la pile.
+7. Nettoyage, même en cas d'échec : suppression du fichier d'environnement et déconnexion du
+   registre.
 
-`setup-python` et `setup-node` gardent en cache le dossier de paquets, indexe sur
-le fichier de verrouillage (`services/backend/requirements.txt`,
-`services/web/package-lock.json`). Un `package-lock.json` non commite ou desynchronise
-casse `npm ci` : les deux fichiers de manifeste se committent ensemble.
+**Pourquoi deux passages.** Au tout premier déploiement, la machine n'a pas encore Docker. Il est
+donc impossible de s'authentifier au registre avant que le playbook l'ait installé.
 
-## Reproduire en local
+**Authentification au registre.** Les paquets GHCR sont privés et il n'existe aucun jeton personnel.
+Le job déclare `packages: read` et utilise le `GITHUB_TOKEN` de son exécution, qui expire à la fin
+du job. Rien de durable ne reste sur la machine.
+
+## Tests et couverture
+
+`backend-test` exige un vrai PostgreSQL, pas un double. Le service `postgres:16` du job est piloté
+par des secrets de dépôt, et `conftest.py` valide l'URL de test, recrée une base dédiée suffixée
+`_test`, joue les migrations Alembic puis insère le jeu de données de test. La base est supprimée en
+fin de session.
+
+Les rapports de couverture sont publiés en artefacts, `backend-coverage` pour `coverage.xml` et
+`web-coverage` pour `lcov.info`. Le détail des suites est dans `tests-et-qualite.md`.
+
+## Reproduire la chaîne en local
 
 ```bash
 # backend
@@ -120,11 +135,29 @@ npm run test:coverage
 cd ../..
 docker build -f services/backend/Dockerfile -t seo-backend:local .
 docker build -t seo-web:local services/web
-trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
-  --format json --output backend.json seo-backend:local
-trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
-  --format json --output web.json seo-web:local
+docker build -f services/ml/Dockerfile -t seo-mlflow:local .
+for i in backend web mlflow; do
+  trivy image --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL \
+    --format json --output "$i.json" "seo-$i:local"
+done
 ```
 
-Le pre-commit (`ruff`, fins de fichier, cle privee, marqueurs de conflit) couvre
-deja une partie du `backend-lint` avant meme le commit ; voir `tests-et-qualite.md`.
+Le pre-commit couvre déjà une partie de `backend-lint` avant même le commit, voir
+`tests-et-qualite.md`.
+
+## Ce qui n'est pas dans la chaîne
+
+Écrit ici plutôt que passé sous silence.
+
+- **Pas de seuil minimal de couverture.** La couverture est mesurée et publiée à chaque exécution,
+  mais aucune valeur plancher ne fait échouer un job.
+- **Pas d'analyse statique de qualité** type SonarQube. Ruff et ESLint couvrent le style, les
+  erreurs courantes et une partie de la sécurité, pas la complexité ni la duplication.
+- **Pas de détection de secrets dans l'historique.** Le pre-commit refuse une clé privée, ce qui ne
+  couvre pas un jeton ou un mot de passe.
+- **Pas de tests de bout en bout ni de test de charge.**
+- **Pas de mise à jour automatisée des dépendances.** Les versions sont bornées à la main et les
+  images sont rescannées à chaque fusion.
+- **Le déploiement ne vérifie pas son effet.** Il enchaîne ses étapes et s'arrête à la première qui
+  échoue, mais rien ne compare à la fin l'empreinte de l'image en service avec le commit déployé.
+  C'est le contrôle qui aurait détecté une dérive silencieuse entre la configuration et les images.

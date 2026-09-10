@@ -3,6 +3,21 @@
 L'usage au jour le jour et le diagnostic. Pour installer, voir `setup.md`. Pour les réglages,
 `configuration.md`.
 
+## Sur le poste ou sur la VM
+
+Toutes les commandes de ce document s'utilisent des deux côtés. Sur la VM, elles se lancent
+depuis `/opt/enervision`, en `root` ou sous le compte de service :
+
+```bash
+cd /opt/enervision
+docker compose ps
+sudo -u enervision docker compose logs -f etl
+```
+
+La différence à garder en tête : sur le poste, les images sont construites localement ; sur la
+VM, elles sont tirées du registre et une modification de code n'y arrive que par un
+déploiement.
+
 ## Démarrer, arrêter, regarder
 
 ```bash
@@ -88,9 +103,15 @@ pas un client local.
 
 ## Amorçage
 
-Il est automatique. `migrate` reprend l'historique sur `BACKFILL_DAYS` jours des sites qui n'ont
-pas encore le leur, et **saute** ceux déjà repris. Un site que la source a refusé n'a laissé
-aucune ligne : il est repris tout seul au démarrage suivant, et le journal de `migrate` le nomme.
+Il est automatique. `migrate` reprend l'historique sur `BACKFILL_DAYS` jours des sites dont la
+couverture est insuffisante. La garde mesure la **profondeur réellement atteinte** et non la
+simple présence de lignes : un site déjà repris sur sept jours sera donc repris à nouveau si la
+profondeur demandée passe à deux ans. Un site que la source a refusé n'a laissé aucune ligne, il
+est repris tout seul au démarrage suivant, et le journal de `migrate` le nomme.
+
+L'écriture se fait au fil de l'eau, fenêtre par fenêtre, avec trois tentatives par fenêtre et un
+point d'avancement toutes les cinquante fenêtres. Une interruption ne perd donc que la fenêtre en
+cours, et le journal dit où elle s'est arrêtée.
 
 Pour le lancer à la main, par exemple sur un site précis ou avec une autre profondeur :
 
@@ -204,8 +225,93 @@ docker compose up -d --force-recreate <service>     # le conteneur tourne encore
 `docker compose start` et `docker compose restart` relancent le conteneur **existant** : ils ne
 prennent pas une image fraîchement construite.
 
-## Sauvegarde
+## Le déploiement n'a pas pris
 
-Le dépôt porte le code et les migrations. La base n'est pas sauvegardée, et elle n'a pas à
-l'être : la couche brute se reconstruit par une nouvelle reprise, avec la réserve ci-dessus sur
-la régénération des données, et la couche transformée se reconstruit entièrement depuis le brut.
+Symptôme typique : un conteneur en `Restarting` avec un module Python introuvable, ou une
+fonctionnalité annoncée qui n'apparaît pas. La cause la plus fréquente est une image en retard
+sur le code, la configuration ayant été mise à jour par le dépôt cloné pendant que les images
+restaient celles du déploiement précédent.
+
+Le diagnostic tient en deux commandes, grâce au label de révision porté par chaque image :
+
+```bash
+docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+  ghcr.io/alexisdraud/smart-energy-optimizer-backend:main
+sudo -u enervision git -C /opt/enervision rev-parse HEAD
+```
+
+Deux empreintes différentes, l'image est en retard. Le tirage forcé la remet à jour :
+
+```bash
+docker compose pull --policy always
+docker compose up -d
+```
+
+Lire aussi la colonne `STATUS` de `docker compose ps` : `Up (healthy)` est sain, `Up` sans
+mention signifie qu'aucun test de santé n'est défini, `Exited (0)` est normal pour `migrate` et
+`minio_setup`, et `Restarting (n)` est une boucle d'échec avec `n` pour code de sortie.
+
+## Le modèle
+
+Aucun modèle n'est entraîné automatiquement en production, `ML_TRAIN_ON_START` valant `0`.
+
+```bash
+# entrainer tous les sites, ou un seul
+docker compose exec mlflow python /app/main.py
+docker compose exec mlflow python /app/main.py --site-id SITE001
+```
+
+Pour un entraînement long, le détacher de la session SSH :
+
+```bash
+nohup docker compose exec -T mlflow python /app/main.py \
+  > /var/log/enervision-train.log 2>&1 &
+tail -f /var/log/enervision-train.log
+```
+
+Vérifier ensuite que le service s'en sert. Le worker tourne toutes les soixante secondes et
+n'écrit rien tant qu'il ne trouve pas de modèle :
+
+```bash
+docker compose exec -T db psql -U seo -d seo -c "
+SELECT model_name, model_version, count(*), max(target_at)
+FROM predictions GROUP BY 1,2 ORDER BY 1"
+```
+
+Les noms attendus sont de la forme `EnerVision_RF_Predictor_<site>`. Si la table reste vide alors
+que l'entraînement a réussi, lire `docker compose logs model` : c'est soit l'alias `production`
+qui n'a pas été posé, soit le magasin d'artefacts qui ne répond pas.
+
+L'interface MLflow n'est pas exposée. Elle s'atteint par un tunnel :
+
+```bash
+ssh -L 5050:127.0.0.1:5000 root@10.138.200.30   # puis http://localhost:5050
+```
+
+Le superviseur ne fait que journaliser ses décisions, sa trace est dans
+`docker compose logs supervisor`.
+
+## Sauvegarde et restauration
+
+Sur la VM, une tâche planifiée quotidienne produit un dump compressé avec rotation. Les deux
+scripts sont installés par le playbook.
+
+```bash
+/usr/local/bin/enervision-backup-db          # sauvegarde immediate
+ls -lh /var/backups/enervision/
+/usr/local/bin/enervision-restore-db /var/backups/enervision/enervision-AAAAMMJJ-HHMMSS.sql.gz
+```
+
+La restauration demande confirmation, arrête les services applicatifs le temps de l'opération et
+les relance. Rien ne restaure automatiquement au démarrage.
+
+Deux limites à connaître. Les sauvegardes vivent sur le disque de la machine qu'elles protègent,
+elles couvrent l'erreur humaine et la corruption, pas la perte de la VM : une copie hors machine
+reste à faire à la main. Et la restauration n'a pas encore été éprouvée.
+
+En dernier recours, la chaîne se reconstruit sans sauvegarde : la couche brute par une nouvelle
+reprise d'historique, avec la réserve ci-dessus sur la régénération des données par la source, et
+la couche transformée entièrement depuis le brut.
+
+**`docker compose down -v` supprime les volumes, donc la base.** Rien ne restaure derrière, et le
+redémarrage suivant repart d'une base vide qui rejouera la reprise d'historique complète.

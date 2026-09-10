@@ -1,6 +1,6 @@
 """Reparation des valeurs nulles de consommation, etage 2.
 
-Applique la strategie de l ADR du 04/09. Deux mecanismes distincts :
+Deux mecanismes distincts :
 
 1. le profil de chaque site, decide par le backtest hors ligne et range dans
    sites.imputation_profile. Il choisit la methode de reparation ;
@@ -37,7 +37,7 @@ LOGGER = logging.getLogger(__name__)
 
 CADENCE = timedelta(minutes=1)
 # Profondeur d historique sur laquelle le profil est decide. Sept jours, comme
-# la reprise : c est la fenetre sur laquelle l ADR a ete valide.
+# la reprise : c est la fenetre sur laquelle la methode a ete comparee.
 PROFILE_LOOKBACK_DAYS = 7
 # Marge chargee avant la fenetre de reparation, pour trouver la valeur reelle
 # qui precede un trou commence juste avant la fenetre.

@@ -31,9 +31,9 @@ x-backend: &backend
   # ils tourneraient alors sur la valeur par defaut du code, sans que rien ne le
   # signale.
   environment: &backend-env
-    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example.example en .env.example}@db:5432/${POSTGRES_DB:-seo}
-    JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example.example en .env.example}
-    SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:?SEED_USER_PASSWORD manquant, copiez .env.example.example en .env.example}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}@db:5432/${POSTGRES_DB:-seo}
+    JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant, copiez .env.example en .env}
+    SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:?SEED_USER_PASSWORD manquant, copiez .env.example en .env}
     ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
     REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
     # A passer a true derriere HTTPS, sinon le cookie de session n arrive pas.
@@ -60,7 +60,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-seo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example.example en .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}
       POSTGRES_DB: ${POSTGRES_DB:-seo}
     ports:
       - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
@@ -168,7 +168,7 @@ services:
   # depend pas de mlflow : registre injoignable = site sans seuil = supervision
   # inactive et un WARNING, pas un arret. Il ne lance rien tant que le service
   # ML n expose pas d entrainement appelable par une machine : il journalise.
-  # Voir docs/ml-supervision.md.
+  # Voir docs/ml.md.
   supervisor:
     <<: *backend
     command: ["python", "-m", "app.supervisor"]
@@ -193,13 +193,13 @@ services:
     image: ${IMAGE_REGISTRY:-}smart-energy-optimizer-mlflow:${IMAGE_TAG:-local}
     pull_policy: ${IMAGE_PULL_POLICY:-build}
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example.example en .env.example}@db:5432/${POSTGRES_DB:-seo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-seo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant, copiez .env.example en .env}@db:5432/${POSTGRES_DB:-seo}
       MLFLOW_TRACKING_URI: http://127.0.0.1:5000
       ML_TRAIN_ON_START: ${ML_TRAIN_ON_START:-1}
       TRAIN_ARGS: ${TRAIN_ARGS:---holdout-minutes 120}
       MLFLOW_START_TIMEOUT_SECONDS: ${MLFLOW_START_TIMEOUT_SECONDS:-120}
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example.example en .env.example}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example.example en .env.example}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
       AWS_REGION: us-east-1
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     depends_on:
@@ -226,8 +226,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example.example en .env.example}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example.example en .env.example}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
     ports:
       - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -241,8 +241,8 @@ services:
       - minio
     entrypoint: /bin/sh -c
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example.example en .env.example}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example.example en .env.example}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER manquant, copiez .env.example en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD manquant, copiez .env.example en .env}
     command: >
       'set -eu;
       attempts=0;

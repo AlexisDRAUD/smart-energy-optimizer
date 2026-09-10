@@ -1,7 +1,7 @@
 """Reglages du superviseur, lus dans l environnement sous le prefixe SUPERVISOR_.
 
 Separes de app.config.Settings : ces reglages n interessent que ce processus,
-et les valeurs par defaut sont les decisions du lot (voir docs/ml-supervision.md),
+et les valeurs par defaut sont les decisions du lot (voir docs/ml.md),
 pas des reglages techniques. Le superviseur prend en plus a app.config ce qu il
 partage avec le reste du backend : la base, MLflow et le prefixe des modeles.
 

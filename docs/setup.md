@@ -36,17 +36,28 @@ C'est la même image que l'API, avec une commande différente.
 git clone <le depot>
 cd smart-energy-optimizer
 
-cp .env.example.example .env.example
+cp .env.example .env
 ```
 
-Ouvrir `.env` et remplir les deux secrets, `POSTGRES_PASSWORD` et `JWT_SECRET_KEY` :
+Ouvrir `.env` et remplir les cinq secrets obligatoires. La pile refuse de démarrer si l'un
+manque, plutôt que de démarrer sur une valeur par défaut :
+
+| Variable | Ce que c'est |
+|---|---|
+| `POSTGRES_PASSWORD` | mot de passe de la base |
+| `JWT_SECRET_KEY` | clé de signature des jetons de session |
+| `SEED_USER_PASSWORD` | mot de passe des comptes créés au premier démarrage |
+| `MINIO_ROOT_USER` | compte du magasin d'artefacts de modèles |
+| `MINIO_ROOT_PASSWORD` | mot de passe de ce magasin |
+
+Pour en générer un :
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Reporter le mot de passe dans `DATABASE_URL`, qui sert aux commandes lancées hors docker.
-Vérifier aussi `SOURCE_API_BASE_URL`, l'adresse de l'API du formateur.
+Reporter le mot de passe de la base dans `DATABASE_URL`, qui sert aux commandes lancées hors
+docker. Vérifier aussi `SOURCE_API_BASE_URL`, l'adresse de l'API du formateur.
 
 Ces valeurs sont propres à chaque poste, elles ne se partagent pas et le fichier n'est jamais
 commité.
@@ -60,14 +71,31 @@ docker compose up
 Ce premier lancement est long, il construit les images. Ensuite il enchaîne :
 
 1. `db` démarre sur un volume vide, PostgreSQL s'y installe ;
-2. `migrate` applique le schéma, crée les comptes, reprend l'historique et s'arrête ;
-3. `api`, `collector` et `etl` démarrent, `web` attend que l'API soit saine.
+2. `minio` démarre et un conteneur d'initialisation crée le seau des artefacts ;
+3. `migrate` applique le schéma, crée les comptes, reprend l'historique et s'arrête ;
+4. `api`, `collector`, `etl`, `model` et `supervisor` démarrent, `web` attend que l'API soit saine.
 
-Comptez une dizaine de secondes pour la reprise d'historique, puis une trentaine pour la
-première transformation, avant que le dashboard affiche quelque chose.
+La durée du premier lancement dépend surtout de `BACKFILL_DAYS`. Sur sept jours, comptez une
+dizaine de secondes de reprise puis une trentaine pour la première transformation. Sur deux ans,
+comptez plutôt une à deux heures, et suivez l'avancement avec
+`docker compose logs -f migrate`.
 
-Le dashboard répond sur `http://localhost` et l'API sur `http://localhost:8080`. Les comptes de
-démonstration sont dans le `README.md`.
+Le dashboard répond sur `http://localhost` et l'API sur `http://localhost:8080/docs`.
+
+Trois comptes sont créés, tous avec la valeur de `SEED_USER_PASSWORD` :
+
+| Compte | Rôle |
+|---|---|
+| `camille.martin@enervision.demo` | `admin` |
+| `lucas.bernard@enervision.demo` | `operator` |
+| `marc.legrand@enervision.demo` | `viewer` |
+
+Aucune donnée de démonstration n'est insérée. Tant que la chaîne n'a pas tourné, les écrans sont
+vides, et c'est voulu.
+
+Le modèle de prévision n'est pas entraîné automatiquement en production. Sur un poste,
+`ML_TRAIN_ON_START` vaut `1`, donc le conteneur `mlflow` lance un entraînement dès qu'il
+démarre. Sans modèle enregistré, aucune prévision n'est écrite : le worker n'a pas de repli.
 
 ## Au quotidien
 

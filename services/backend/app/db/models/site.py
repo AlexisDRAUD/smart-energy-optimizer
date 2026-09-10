@@ -26,7 +26,7 @@ class Site(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Decide par le backtest de l ADR du 04/09, recalcule par l ETL.
+    # Decide par la comparaison des methodes d imputation, recalcule par l ETL.
     imputation_profile: Mapped[str | None] = mapped_column(String, nullable=True)
     imputation_profile_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
