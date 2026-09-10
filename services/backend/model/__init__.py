@@ -1,20 +1,23 @@
 """Worker de prevision.
 
-Boucle longue qui rejoue le modele et remplit la table ``predictions``. A chaque
-passage, pour chaque site ``active`` :
+Boucle longue qui rejoue les modeles MLflow et remplit la table ``predictions``.
+A chaque passage, pour chaque site ``active`` :
 
 1. lecture du dernier releve du site (``readings``) ;
 2. prevision a l'horizon configure (``prediction_horizon_minutes``, 120 par
-   defaut) : moyenne des 24 derniers releves, modele ``local-moving-average``.
-   Cette branche n'a pas d'integration MLflow, le modele entraine de
-   ``services/ml`` n'est pas encore branche ici ;
+   defaut) par le modele versionne ``EnerVision_RF_Predictor_<site_id>`` (alias
+   ``production``) charge depuis le registre MLflow via ``model/forecast.py``. Un
+   site sans modele publie, ou un registre injoignable, est ignore : ce worker
+   ne sert que des modeles MLflow, il n'a pas de repli local ;
 3. ecriture d'une prevision (ignoree si une ligne identique existe deja) ;
 4. rapprochement des previsions arrivees a echeance avec la mesure reelle.
 
-Le calcul est celui de ``app.services.prediction_service``, partage avec l'API
-(qui l'utilise en lecture seule). Ce worker est le seul processus qui ecrit dans
-la table ``predictions`` : la contrainte d'unicite ``site_id, target_at,
-model_version, horizon_minutes`` protege quand meme les doublons.
+L'orchestration (points 1 a 4) est dans ``model/refresh.py``, le service du
+modele MLflow dans ``model/forecast.py``. Ce paquet ne depend que du registre
+MLflow, des modeles ORM (``app.db``) et de la configuration ; il ne passe pas
+par ``app.services``. Ce worker est le seul processus qui ecrit dans la table
+``predictions`` ; la contrainte d'unicite ``site_id, target_at, model_version,
+horizon_minutes`` protege quand meme les doublons.
 
 Tourne dans son propre conteneur, a partir de l'image du backend, avec la
 commande ``python -m model.predict``. La cadence vient de la boucle du processus,

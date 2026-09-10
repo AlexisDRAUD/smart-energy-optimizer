@@ -14,23 +14,30 @@ from app.db.models.site import Site
 from app.services.prediction_alerts import evaluate_prediction_rise
 
 
-def model_metadata(db: Session) -> dict[str, object]:
+def model_metadata(db: Session, site_id: str | None = None) -> dict[str, object]:
     """Decrire le modele en service a partir des previsions reellement ecrites.
 
     Rien n est declare ici : le nom, la version et l horizon sont ceux de la
     derniere ligne de la table predictions. Tant qu aucune prevision n existe,
     les champs sont nuls plutot que remplis avec des valeurs de facade.
+
+    Avec ``site_id``, tout est restreint aux previsions de ce site : le modele
+    decrit est alors celui qui sert reellement ce site (un modele MLflow par
+    site), et les compteurs ne portent que sur lui.
     """
-    latest = db.scalar(
-        select(Prediction).order_by(Prediction.predicted_at.desc(), Prediction.id.desc()).limit(1)
+    latest_stmt = select(Prediction).order_by(Prediction.predicted_at.desc(), Prediction.id.desc())
+    total_stmt = select(func.count()).select_from(Prediction)
+    scored_stmt = (
+        select(func.count()).select_from(Prediction).where(Prediction.actual_kwh.is_not(None))
     )
-    total = db.scalar(select(func.count()).select_from(Prediction)) or 0
-    scored = (
-        db.scalar(
-            select(func.count()).select_from(Prediction).where(Prediction.actual_kwh.is_not(None))
-        )
-        or 0
-    )
+    if site_id is not None:
+        latest_stmt = latest_stmt.where(Prediction.site_id == site_id)
+        total_stmt = total_stmt.where(Prediction.site_id == site_id)
+        scored_stmt = scored_stmt.where(Prediction.site_id == site_id)
+
+    latest = db.scalar(latest_stmt.limit(1))
+    total = db.scalar(total_stmt) or 0
+    scored = db.scalar(scored_stmt) or 0
     return {
         "model_name": latest.model_name if latest else None,
         "model_version": latest.model_version if latest else None,
@@ -39,6 +46,21 @@ def model_metadata(db: Session) -> dict[str, object]:
         "predictions_total": total,
         "predictions_scored": scored,
     }
+
+
+def active_model(db: Session, site_id: str) -> tuple[str, str] | None:
+    """Nom et version du modele qui sert le site : ceux de sa derniere prevision.
+
+    Un site est servi par un seul modele a la fois (un modele MLflow par site).
+    Renvoie ``None`` quand le site n a encore aucune prevision.
+    """
+    row = db.execute(
+        select(Prediction.model_name, Prediction.model_version)
+        .where(Prediction.site_id == site_id)
+        .order_by(Prediction.predicted_at.desc(), Prediction.id.desc())
+        .limit(1)
+    ).first()
+    return None if row is None else (row.model_name, row.model_version)
 
 
 def score_due_predictions(db: Session, scored_at: datetime) -> int:

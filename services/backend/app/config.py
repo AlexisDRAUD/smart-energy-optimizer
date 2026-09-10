@@ -70,7 +70,12 @@ class Settings(BaseSettings):
 
     local_model_name: str = "local-moving-average"
     local_model_version: str = "local-1"
-    mlflow_tracking_uri: str | None = None
+    # Registre MLflow d ou le worker services/backend/model charge un modele par
+    # site. Defaut = port publie sur localhost, pour un backend lance hors docker
+    # (meme valeur que MLFLOW_TRACKING_URI dans .env). Sous docker compose, le
+    # compose fixe MLFLOW_TRACKING_URI a http://mlflow:5000. Vide pour forcer le
+    # repli moyenne glissante sans MLflow.
+    mlflow_tracking_uri: str | None = "http://127.0.0.1:5000"
     mlflow_model_name_prefix: str = "EnerVision_RF_Predictor"
     mlflow_model_alias: str = "production"
 

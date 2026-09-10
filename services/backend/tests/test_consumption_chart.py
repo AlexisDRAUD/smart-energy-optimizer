@@ -201,6 +201,41 @@ def test_only_production_h2_is_displayed_and_compared(chart_client):
     assert body["last_evaluated"]["actual_kwh"] == 330
 
 
+def test_chart_follows_the_active_model_identity_per_site(chart_client):
+    client, db, _ = chart_client
+    db.execute(insert(Reading), [reading(i, 330) for i in range(6)])
+    db.execute(
+        insert(Prediction),
+        [
+            # ancien modele local : previsions plus anciennes
+            prediction(0, name="local-moving-average", version="local-1"),
+            prediction(1, name="local-moving-average", version="local-1"),
+            # modele MLflow par site : la prevision la plus recente
+            prediction(2, name="EnerVision_RF_Predictor_chart-test", version="7"),
+            prediction(3, name="EnerVision_RF_Predictor_chart-test", version="7"),
+        ],
+    )
+    body = fetch(client).json()
+
+    # l'identite renvoyee est celle de la derniere prevision ecrite, pas une constante
+    assert body["model_name"] == "EnerVision_RF_Predictor_chart-test"
+    assert body["model_version"] == "7"
+    # seules les lignes du modele actif alimentent la serie
+    assert len(body["historical_predictions"]) == 2
+    assert {p["model_version"] for p in body["historical_predictions"]} == {"7"}
+    assert body["last_evaluated"]["model_version"] == "7"
+
+
+def test_chart_falls_back_to_local_identity_without_predictions(chart_client):
+    client, db, _ = chart_client
+    db.execute(insert(Reading), [reading(i, 330) for i in range(6)])
+    body = fetch(client).json()
+
+    assert body["model_name"] == settings.local_model_name
+    assert body["model_version"] == settings.local_model_version
+    assert body["historical_predictions"] == []
+
+
 def test_empty_window_and_nonmatching_timestamps(chart_client):
     client, db, _ = chart_client
     assert fetch(client).json()["last_evaluated"] is None

@@ -22,6 +22,29 @@ MAX_PREDICTIONS = MAX_READINGS + HORIZON_MINUTES
 DISPLAY_POINTS_PER_SERIES = 600
 
 
+def active_model(db: Session, site_id: str) -> tuple[str, str]:
+    """Modele (nom, version) de la derniere prevision du site.
+
+    Le graphique suit ce modele : les series historiques et futures sont filtrees
+    sur ce couple exact, et l'identite renvoyee est celle des lignes reellement
+    ecrites (moyenne mobile locale ou modele MLflow par site, selon ce que le
+    worker sert). Sans aucune prevision pour le site, on retombe sur le modele
+    local par defaut pour garder une reponse de forme constante.
+    """
+    row = db.execute(
+        select(Prediction.model_name, Prediction.model_version)
+        .where(
+            Prediction.site_id == site_id,
+            Prediction.horizon_minutes == HORIZON_MINUTES,
+        )
+        .order_by(Prediction.predicted_at.desc(), Prediction.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return settings.local_model_name, settings.local_model_version
+    return row.model_name, row.model_version
+
+
 def sampling_stats(source: list[dict], displayed: list[dict]) -> dict[str, int | bool]:
     return {
         "input_points": len(source),
@@ -58,6 +81,7 @@ def coverage(
 
 def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime) -> dict:
     future_end = end + timedelta(minutes=HORIZON_MINUTES)
+    model_name, model_version = active_model(db, site_id)
     # Existing indexes start with (site_id, measured_at) / (site_id, target_at).
     # LIMIT + 1 detects overflow, never returns a partial series as a success.
     readings = list(
@@ -89,8 +113,8 @@ def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime)
                 Prediction.target_at >= start,
                 Prediction.target_at < future_end,
                 Prediction.horizon_minutes == HORIZON_MINUTES,
-                Prediction.model_name == settings.local_model_name,
-                Prediction.model_version == settings.local_model_version,
+                Prediction.model_name == model_name,
+                Prediction.model_version == model_version,
             )
             .order_by(Prediction.target_at, Prediction.id)
             .limit(MAX_PREDICTIONS + 1)
@@ -124,7 +148,7 @@ def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime)
                 "predicted_kwh": predicted,
                 "deviation_percent": (actual - predicted) / predicted * 100 if predicted else None,
                 "horizon_minutes": HORIZON_MINUTES,
-                "model_version": settings.local_model_version,
+                "model_version": prediction["model_version"],
             }
             break
 
@@ -164,8 +188,8 @@ def consumption_chart(db: Session, site_id: str, start: datetime, end: datetime)
         "measurement_interval_seconds": None,
         "cadence_seconds": CADENCE_SECONDS,
         "horizon_minutes": HORIZON_MINUTES,
-        "model_name": settings.local_model_name,
-        "model_version": settings.local_model_version,
+        "model_name": model_name,
+        "model_version": model_version,
         "max_readings": MAX_READINGS,
         "max_predictions": MAX_PREDICTIONS,
         "readings": displayed_points,

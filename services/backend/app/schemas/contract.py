@@ -90,12 +90,24 @@ class LatestReadingResponse(ReadingPoint):
     age_seconds: int = Field(ge=0)
 
 
+class OverviewSitePrediction(ContractModel):
+    """Prevision H+2 en cours pour le site : sa derniere ligne dans predictions."""
+
+    target_at: ISODateTime = Field(json_schema_extra={"format": "date-time"})
+    horizon_minutes: int = Field(gt=0)
+    predicted_kwh: float
+    model_name: str
+    model_version: str
+
+
 class OverviewSite(ContractModel):
     site_id: str
     consumption_kw: float
     capacity_kw: float
     load_rate_percent: float
     measured_at: ISODateTime = Field(json_schema_extra={"format": "date-time"})
+    # None tant qu aucune prevision n existe pour le site.
+    prediction: OverviewSitePrediction | None = None
 
 
 class OverviewResponse(ContractModel):

@@ -23,6 +23,13 @@ def test_dashboard_data_is_served_from_transformed_tables(
     assert overview.status_code == 200
     assert overview.json()["site_count"] == 3
     assert overview.json()["incomplete"] is False
+    # Chaque site expose sa prevision H+2 en cours (derniere ligne de predictions).
+    sites_with_prediction = [s for s in overview.json()["by_site"] if s["prediction"] is not None]
+    assert sites_with_prediction, "le seed pose une prevision par site"
+    sample = sites_with_prediction[0]["prediction"]
+    assert sample["horizon_minutes"] == 120
+    assert isinstance(sample["predicted_kwh"], (int, float))
+    assert sample["model_name"] and sample["model_version"]
     assert quality.status_code == 200
     assert quality.json()["total"] == 1
     assert sensors.status_code == 200
