@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.config import settings
+from app.db.models.alert import Alert
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
 from app.db.models.site import Site
@@ -71,6 +72,53 @@ def test_refresh_stores_forecast_with_its_model_identity(database: None) -> None
             assert row.horizon_minutes == settings.prediction_horizon_minutes
     finally:
         with SessionLocal() as db:
+            db.execute(delete(Prediction).where(Prediction.model_version == marker))
+            db.commit()
+
+
+def test_refresh_opens_alert_for_fast_mlflow_forecast(database: None) -> None:
+    site_id = "LYO-01"
+    marker = "test-mlflow-alert"
+    predicted_at = datetime(2026, 9, 10, 8, 0, tzinfo=UTC)
+
+    class Forecaster:
+        def forecast(self, db, site, latest) -> SiteForecast | None:
+            if site.site_id != site_id:
+                return None
+            assert latest.consumption_kwh is not None
+            return SiteForecast(
+                predicted_kwh=latest.consumption_kwh * 4,
+                model_name=f"EnerVision_RF_Predictor_{site_id}",
+                model_version=marker,
+            )
+
+    try:
+        with SessionLocal() as db:
+            assert refresh_predictions(db, Forecaster(), predicted_at) == 1
+            alert = db.scalar(
+                select(Alert).where(
+                    Alert.site_id == site_id,
+                    Alert.type == "forecast",
+                    Alert.detected_at == predicted_at,
+                )
+            )
+            prediction = db.scalar(select(Prediction).where(Prediction.model_version == marker))
+
+        assert alert is not None
+        assert prediction is not None
+        assert alert.value == prediction.predicted_kwh
+        assert alert.origin == "internal"
+        assert alert.status == "open"
+        assert alert.severity == "critical"
+    finally:
+        with SessionLocal() as db:
+            db.execute(
+                delete(Alert).where(
+                    Alert.site_id == site_id,
+                    Alert.type == "forecast",
+                    Alert.detected_at == predicted_at,
+                )
+            )
             db.execute(delete(Prediction).where(Prediction.model_version == marker))
             db.commit()
 

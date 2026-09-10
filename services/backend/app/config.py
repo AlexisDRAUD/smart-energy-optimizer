@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     prediction_horizon_minutes: int = 120
     # Cadence de la boucle du worker autonome services/backend/model.
     prediction_worker_interval_seconds: int = 60
+    # Alerte de prevision : hausse prevue jugee trop rapide, en % par heure,
+    # entre le dernier releve reel et la prevision a l horizon.
+    prediction_alert_rise_percent_per_hour: float = 25.0
+    # Reference minimale sous laquelle la hausse relative n a pas de sens :
+    # a quelques centaines de watts, le moindre ecart fait un pourcentage enorme.
+    prediction_alert_min_baseline_kwh: float = 1.0
+
     local_model_name: str = "local-moving-average"
     local_model_version: str = "local-1"
     # Registre MLflow d ou le worker services/backend/model charge un modele par

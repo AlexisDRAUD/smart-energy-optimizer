@@ -128,7 +128,7 @@ export type ApiAlert = {
     id: number
     site_id: string
     detected_at: string
-    type: 'spike' | 'threshold' | 'anomaly' | 'outage' | 'sensor'
+    type: 'spike' | 'threshold' | 'anomaly' | 'outage' | 'sensor' | 'forecast'
     severity: Severity
     message: string
     value: number | null

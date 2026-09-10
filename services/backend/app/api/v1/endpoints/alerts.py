@@ -22,7 +22,7 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 Severity = Literal["low", "medium", "high", "critical"]
 AlertStatusFilter = Literal["open", "acknowledged", "closed", "all"]
-AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor"]
+AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor", "forecast"]
 Period = Literal["day", "week", "month"]
 
 

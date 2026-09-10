@@ -22,6 +22,7 @@ from app.core.contract import as_utc
 from app.db.models.prediction import Prediction
 from app.db.models.reading import Reading
 from app.db.models.site import Site
+from app.services.prediction_alerts import evaluate_prediction_rise
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -117,5 +118,13 @@ def refresh_predictions(
             )
         )
         created += 1
+        evaluate_prediction_rise(
+            db,
+            site_id=site.site_id,
+            baseline_kwh=latest.consumption_kwh,
+            predicted_kwh=predicted_kwh,
+            horizon_minutes=horizon,
+            detected_at=predicted_at,
+        )
     db.commit()
     return created

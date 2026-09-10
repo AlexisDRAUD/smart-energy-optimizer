@@ -91,6 +91,8 @@ La stratégie est décrite dans `adr/ADR-2026-09-04-strategie-imputation-consomm
 | `COOKIE_SECURE` | `false` | à passer à `true` derrière HTTPS |
 | `SEED_USER_PASSWORD` | — | mot de passe des trois comptes de démonstration |
 | `PREDICTION_REFRESH_INTERVAL_SECONDS` | `60` | cadence de la boucle de prédiction de l'API |
+| `PREDICTION_ALERT_RISE_PERCENT_PER_HOUR` | `25.0` | hausse prévue par heure à partir de laquelle une alerte est ouverte |
+| `PREDICTION_ALERT_MIN_BASELINE_KWH` | `1.0` | relevé minimal utilisé comme référence pour une hausse relative |
 
 `COOKIE_SECURE=true` sans HTTPS empêche le navigateur d'envoyer le cookie de session, et la
 connexion échoue silencieusement au premier renouvellement de jeton.

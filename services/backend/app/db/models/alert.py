@@ -19,7 +19,7 @@ class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
         CheckConstraint(
-            "type IN ('spike', 'threshold', 'anomaly', 'outage', 'sensor')",
+            "type IN ('spike', 'threshold', 'anomaly', 'outage', 'sensor', 'forecast')",
             name="ck_alerts_type",
         ),
         CheckConstraint(

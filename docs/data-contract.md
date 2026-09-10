@@ -349,7 +349,7 @@ effectué dans EnerVision.
 | `id` | `bigserial` | |
 | `site_id` | `text` | |
 | `detected_at` | `timestamptz` | |
-| `type` | `text` | `spike`, `threshold`, `anomaly`, `outage`, `sensor` |
+| `type` | `text` | `spike`, `threshold`, `anomaly`, `outage`, `sensor`, `forecast` |
 | `severity` | `text` | `low`, `medium`, `high`, `critical` |
 | `message` | `text` | |
 | `value` | `double precision` | la valeur qui a déclenché |

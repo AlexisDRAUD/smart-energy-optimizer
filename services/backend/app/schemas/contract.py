@@ -175,7 +175,7 @@ class AlertResponse(ContractModel):
     id: int
     site_id: str
     detected_at: ISODateTime = Field(json_schema_extra={"format": "date-time"})
-    type: Literal["spike", "threshold", "anomaly", "outage", "sensor"]
+    type: Literal["spike", "threshold", "anomaly", "outage", "sensor", "forecast"]
     severity: Literal["low", "medium", "high", "critical"]
     message: str
     value: float | None
